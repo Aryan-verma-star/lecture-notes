@@ -9,6 +9,62 @@ import { Button } from '@/components/lecture-notes/Button'
 import { EmptyState } from '@/components/lecture-notes/EmptyState'
 import { StatusPill } from '@/components/lecture-notes/StatusPill'
 
+/** Pure-SVG activity chart: one bar per day for the last 28 days. */
+function ActivityChart({ activity }: { activity: { date: string; count: number }[] }) {
+  const max = Math.max(1, ...activity.map((a) => a.count))
+  const total = activity.reduce((sum, a) => sum + a.count, 0)
+
+  return (
+    <div className="activity-card" role="img" aria-label={`Activity chart: ${total} lectures in the last 4 weeks`}>
+      <div className="activity-header">
+        <span className="stat-label">
+          <Activity size={13} strokeWidth={1.5} />
+          Last 4 weeks
+        </span>
+        <span className="caption num">
+          {total} {total === 1 ? 'lecture' : 'lectures'}
+        </span>
+      </div>
+      <div className="activity-chart">
+        {activity.map((day) => {
+          const pct = (day.count / max) * 100
+          const d = new Date(day.date + 'T00:00:00Z')
+          const label = d.toLocaleDateString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            timeZone: 'UTC',
+          })
+          return (
+            <div
+              key={day.date}
+              className="activity-col"
+              title={`${label} — ${day.count} ${day.count === 1 ? 'lecture' : 'lectures'}`}
+            >
+              <div className="activity-bar-track">
+                <div
+                  className={`activity-bar ${day.count > 0 ? 'has-activity' : ''}`}
+                  style={{ height: `${day.count > 0 ? Math.max(pct, 12) : 0}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="activity-axis">
+        <span className="caption text-muted">
+          {new Date(activity[0]?.date + 'T00:00:00Z').toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            timeZone: 'UTC',
+          })}
+        </span>
+        <span className="caption text-muted">today</span>
+      </div>
+    </div>
+  )
+}
+
 export function StatsView() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [failed, setFailed] = useState(false)
@@ -145,6 +201,13 @@ export function StatsView() {
           </span>
         </div>
       </div>
+
+      {/* -------- Activity chart -------- */}
+      {stats.activity && stats.activity.length > 0 ? (
+        <section className="stats-section" aria-label="Recording activity">
+          <ActivityChart activity={stats.activity} />
+        </section>
+      ) : null}
 
       {/* -------- Per-subject breakdown -------- */}
       {stats.subjects.length > 0 ? (

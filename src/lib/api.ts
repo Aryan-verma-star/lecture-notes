@@ -161,6 +161,7 @@ export interface Stats {
   processing: number
   completionRate: number | null
   firstLectureAt?: string | null
+  activity?: { date: string; count: number }[]
   subjects: SubjectStat[]
   recentLectures: {
     id: string

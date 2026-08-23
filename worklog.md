@@ -72,9 +72,49 @@ Unresolved issues / risks:
 - GitHub OAuth + ASR remain simulations (production swap points).
 
 Next-phase priorities (for the next webDevReview):
-1. Subject detail: search/filter + sort lectures; batch actions (delete multiple).
+1. ~~Subject detail: search/filter + sort lectures~~ ✅ done in round 3
 2. Subjects page: subject editing (rename/description) and better long-list handling (pagination or virtual scroll when >20 subjects).
-3. Record page: pause/resume recording; live waveform or level meter; recording session naming after stop.
-4. Markdown editor mode: view source toggle for power users; anchor links/outline sidebar for long notes (TOC).
-5. Stats: bar chart of lectures per week/month (pure CSS or SVG, no chart lib needed for the aesthetic).
+3. ~~Record page: pause/resume recording; live waveform or level meter~~ ✅ done in round 3
+4. ~~Markdown editor mode: view source toggle; anchor links/outline sidebar for long notes (TOC)~~ ✅ done in round 3
+5. ~~Stats: bar chart of lectures per week/month~~ ✅ done in round 3 (daily activity chart)
+6. Real ASR integration via z-ai-web-dev-sdk in the audio route (optional big win).
+
+---
+Task ID: 3-a
+Agent: webDevReview (recurring cron)
+Task: Round 3 — QA regression pass + implement: lecture-notes TOC with scroll-spy, Markdown source view toggle, subject lecture search/filter/sort, stats activity chart, record pause/resume with live level meter.
+
+Work Log:
+- QA pass first: session restored, palette (8 items), stats (4 cards), lecture detail — no regressions from round 2.
+- Backend: `GET /api/stats` now returns `activity` — daily lecture counts for the last 28 days (UTC-normalized keys), computed from all lectures.
+- New lib `src/lib/toc.ts` — `extractToc(markdown)` (ATX h2/h3 parser that skips fenced code blocks, strips inline formatting) + `slugify`. Ids are derived purely from heading TEXT with no per-render counters and no dedup suffixes, so renderer and TOC cannot drift.
+- LectureDetailView upgrades:
+  - "On this page" TOC card in the sidebar (h2 + indented h3), click → smooth scroll (scroll-margin-top offset), IntersectionObserver scroll-spy highlights the active section with wine left-border.
+  - Preview / Source segmented control above notes; Source renders the raw markdown in a styled mono `<pre>`; toolbar shows "N sections · M lines".
+  - Restructured sidebar: `.lecture-side` wrapper (sticky column) containing meta card + TOC.
+- SubjectDetailView upgrades: lecture toolbar with live title search (clear button), status filter select (All/Completed/Processing/Recording/Failed), sort select (Newest/Oldest/Title A–Z); dashed-border empty state with "Clear filters" action; filtering is client-side over the polled list.
+- StatsView: pure-CSS activity chart — 28 daily bars, proportional heights, wine-500 bars with hover lightening, native title tooltips, first-date/today axis labels, "N lectures" header.
+- RecordView upgrades:
+  - Pause / Resume button pair with Stop (danger-solid); MediaRecorder.pause()/resume() with timer that accumulates only running time (accumulatedRef + segmentStartRef) — paused time excluded from duration.
+  - Paused state: amber "PAUSED" indicator, dimmed timer, updated hint.
+  - Live input level meter: AudioContext + AnalyserNode (fftSize 512), rAF loop computes RMS with perceptual curve, updates 28 meter cells via direct DOM class toggling (no re-renders); cells use wine-300 with error-red "hot" zone; meter hidden in timer-only mode; AudioContext closed on cleanup.
+- CSS (+~450 lines): notes toolbar + segmented control, markdown-source, toc-card/list/links with active state, lecture toolbar + search box + selects, empty-filter state, activity chart, record-controls, paused indicator, meter cells, mobile rules (toolbar wraps, search full-width, controls stacked, TOC first on mobile).
+- BUG FOUND & FIXED (real bug caught by E2E): first TOC implementation used a shared mutable idx counter inside memoized react-markdown components — worked on first render but scroll-spy re-renders continued incrementing past toc.length, wiping ALL heading ids (headings unreachable, getElementById null). Fixed by making ids stateless (derived from heading text via nodeText recursion + slugify on both sides). Also fixed missing `slugify` import that caused a client-side ReferenceError crash during the fix (recovered via Fast Refresh full reload).
+
+Stage Summary:
+- E2E verified: TOC renders 8 entries with correct ids; click scrolls to heading (top ≈150px with offset); active highlight tracks scroll; ids survive re-renders (validated after scroll + toggle cycles); Source toggle shows 58-line raw markdown, Preview restores TOC; subject filter "fourier" → 1 row; status filter FAILED → empty state with Clear filters; sort title A–Z alphabetical; pause froze timer at 00:15 for 4s+, resume continued 15→18; stop created lecture "Lecture 7: PDEs Intro" → completed with TOC; stats updated to 4 lectures / activity chart 2 active days; mobile: TOC above meta card, chart 28 bars, wrapped toolbar. VLM: "Exceptionally high polish… production-ready interface."
+- Lint: clean (0 errors, 0 warnings). dev.log: no server errors.
+
+Unresolved issues / risks:
+- agent-browser daemon input flakiness (restart browser when clicks silently fail) — occurred once this round, resolved with close/relaunch.
+- Dev server persistence: currently running via detached double-fork; if it dies restart with `cd /home/z/my-project && (setsid bun run dev < /dev/null > /tmp/dev-server.log 2>&1 &)`.
+- Duplicate heading texts share one anchor id (acceptable; both TOC links jump to first occurrence).
+- Level meter only renders when mic permission granted (headless has no mic — verified via logic, not visually).
+
+Next-phase priorities (for the next webDevReview):
+1. Subject editing (rename/description) from Subjects page; subject card context menu.
+2. Command palette: recent-items memory + "Create new subject" action from palette.
+3. Notes: checkbox interactivity (persist task-list checks), print stylesheet.
+4. Stats: weekly grouping toggle; duration-weighted activity (minutes per day, not just counts).
+5. Batch lecture actions (multi-select delete) on subject detail.
 6. Real ASR integration via z-ai-web-dev-sdk in the audio route (optional big win).

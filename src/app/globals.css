@@ -854,6 +854,371 @@ ul, ol {
 }
 
 /* ------------------------------------------------------------
+   Notes toolbar (Preview / Source) + source view
+   ------------------------------------------------------------ */
+.notes-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.segmented {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 2px;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: calc(var(--radius-md) - 3px);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+
+.segment:hover {
+  color: var(--text-primary);
+}
+
+.segment.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--border-default);
+}
+
+.segment.active svg {
+  color: var(--wine-300);
+}
+
+.markdown-source {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  overflow-x: auto;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+/* Anchor scroll offset for headings */
+.markdown-content h2,
+.markdown-content h3 {
+  scroll-margin-top: var(--space-6);
+}
+
+/* ------------------------------------------------------------
+   Table of contents
+   ------------------------------------------------------------ */
+.toc-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+
+.toc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-1) var(--space-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.toc-title svg {
+  color: var(--wine-300);
+}
+
+.toc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 340px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.toc-link {
+  display: block;
+  padding: 4px var(--space-2);
+  border-left: 2px solid transparent;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.toc-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.toc-link.active {
+  color: var(--wine-200);
+  border-left-color: var(--wine-500);
+  background: rgba(114, 47, 55, 0.08);
+}
+
+.toc-h3 .toc-link {
+  padding-left: var(--space-4);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.toc-h3 .toc-link:hover {
+  color: var(--text-secondary);
+}
+
+.toc-h3 .toc-link.active {
+  color: var(--wine-200);
+}
+
+/* ------------------------------------------------------------
+   Lecture toolbar (search / filter / sort)
+   ------------------------------------------------------------ */
+.lecture-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.lecture-search-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-3);
+  height: 38px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.lecture-search-box:focus-within {
+  border-color: var(--wine-500);
+  box-shadow: 0 0 0 3px rgba(114, 47, 55, 0.15);
+}
+
+.lecture-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.lecture-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.lecture-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.lecture-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.lecture-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.lecture-toolbar .lecture-toolbar-select {
+  width: auto;
+  flex-shrink: 0;
+  height: 38px;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-right: var(--space-7);
+  font-size: 12.5px;
+  background-color: var(--bg-secondary);
+}
+
+.lecture-empty-filter {
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ------------------------------------------------------------
+   Activity chart
+   ------------------------------------------------------------ */
+.activity-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.activity-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 88px;
+}
+
+.activity-col {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.activity-bar-track {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-radius: 2px;
+}
+
+.activity-bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  transition: height 0.3s ease;
+}
+
+.activity-bar.has-activity {
+  background: var(--wine-500);
+}
+
+.activity-col:hover .activity-bar.has-activity {
+  background: var(--wine-300);
+}
+
+.activity-axis {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+}
+
+/* ------------------------------------------------------------
+   Record page — pause state + level meter
+   ------------------------------------------------------------ */
+.record-controls {
+  display: flex;
+  gap: var(--space-3);
+  width: 100%;
+  justify-content: center;
+}
+
+.record-controls > * {
+  min-width: 160px;
+}
+
+.rec-indicator.paused {
+  color: var(--warning);
+}
+
+.rec-indicator.paused .rec-dot {
+  background: var(--warning);
+  animation: none;
+}
+
+.record-timer.dimmed {
+  color: var(--text-muted);
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 var(--space-2);
+}
+
+.meter-cell {
+  width: 5px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--bg-elevated);
+  transition: height 0.08s ease, background 0.08s ease;
+}
+
+.meter-cell.lit {
+  background: var(--wine-300);
+  height: 16px;
+}
+
+.meter-cell:nth-child(4n + 2).lit {
+  height: 20px;
+}
+
+.meter-cell:nth-child(4n + 4).lit {
+  height: 13px;
+}
+
+.meter-cell.hot {
+  background: var(--error);
+}
+
+/* ------------------------------------------------------------
    Page entrance (subtle, instant-feeling)
    ------------------------------------------------------------ */
 .page-enter {
@@ -1423,9 +1788,18 @@ ul, ol {
    ------------------------------------------------------------ */
 .lecture-detail-layout {
   display: grid;
-  grid-template-columns: 1fr 240px;
+  grid-template-columns: 1fr 260px;
   gap: var(--space-7);
   align-items: start;
+}
+
+.lecture-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  position: sticky;
+  top: var(--space-5);
+  min-width: 0;
 }
 
 .lecture-meta-card {
@@ -1436,8 +1810,6 @@ ul, ol {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  position: sticky;
-  top: var(--space-5);
 }
 
 .lecture-meta-row {
@@ -2086,6 +2458,37 @@ ul, ol {
     padding-top: 8vh;
   }
 
+  .lecture-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .lecture-search-box {
+    flex-basis: 100%;
+  }
+
+  .lecture-toolbar .lecture-toolbar-select {
+    flex: 1;
+  }
+
+  .record-controls {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .record-controls > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .notes-toolbar {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .toc-card {
+    order: -1;
+  }
+
   .subject-stat-row {
     grid-template-columns: minmax(80px, 1fr) auto auto;
   }
@@ -2115,9 +2518,13 @@ ul, ol {
     gap: var(--space-5);
   }
 
-  .lecture-meta-card {
+  .lecture-side {
     position: static;
     order: -1;
+  }
+
+  .toc-list {
+    max-height: none;
   }
 
   .bottom-tabs {

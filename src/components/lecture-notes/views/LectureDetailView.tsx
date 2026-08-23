@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle,
@@ -10,6 +10,8 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FileText,
+  ListTree,
   Pencil,
   RefreshCw,
   Trash2,
@@ -22,9 +24,39 @@ import {
 } from '@/lib/api'
 import { navigate, useBack } from '@/lib/router'
 import { formatDate, formatDuration } from '@/lib/format'
+import { extractToc, slugify } from '@/lib/toc'
 import { Button } from '@/components/lecture-notes/Button'
 import { StatusPill } from '@/components/lecture-notes/StatusPill'
 import { useToast } from '@/context/ToastContext'
+
+type ViewMode = 'preview' | 'source'
+
+/** Recursively extracts plain text from React children (strings, arrays, elements). */
+function nodeText(node: React.ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(nodeText).join('')
+  if (typeof node === 'object' && 'props' in (node as React.ReactElement)) {
+    return nodeText((node as React.ReactElement<{ children?: React.ReactNode }>).props.children)
+  }
+  return ''
+}
+
+/** Markdown renderers that derive heading ids from heading text — stateless,
+ *  so ids survive re-renders (scroll-spy, view toggles) without drift. */
+function useMarkdownComponents(): Components {
+  return useMemo(
+    () => ({
+      h2: ({ children }) => (
+        <h2 id={slugify(nodeText(children)) || undefined}>{children}</h2>
+      ),
+      h3: ({ children }) => (
+        <h3 id={slugify(nodeText(children)) || undefined}>{children}</h3>
+      ),
+    }),
+    []
+  )
+}
 
 export function LectureDetailView({ lectureId }: { lectureId: string }) {
   const { toast } = useToast()
@@ -40,6 +72,8 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
   const [renameValue, setRenameValue] = useState('')
   const [renamingBusy, setRenamingBusy] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>('preview')
+  const [activeHeading, setActiveHeading] = useState<string | null>(null)
   const back = useBack('/subjects')
 
   const load = useCallback(() => {
@@ -88,6 +122,42 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
     }
   }, [lecture?.status, lectureId, load])
 
+  const toc = useMemo(
+    () => (lecture?.markdown ? extractToc(lecture.markdown) : []),
+    [lecture?.markdown]
+  )
+  const markdownComponents = useMarkdownComponents()
+
+  // Scroll-spy: highlight the TOC entry for the topmost visible heading
+  useEffect(() => {
+    if (viewMode !== 'preview' || toc.length === 0) return
+    const headings = toc
+      .map((t) => document.getElementById(t.id))
+      .filter((el): el is HTMLElement => el !== null)
+    if (headings.length === 0) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setActiveHeading(entry.target.id)
+          }
+        }
+      },
+      { rootMargin: '-10% 0px -70% 0px', threshold: 0 }
+    )
+    headings.forEach((h) => observer.observe(h))
+    return () => observer.disconnect()
+  }, [toc, viewMode, lecture?.markdown])
+
+  function scrollToHeading(id: string) {
+    const el = document.getElementById(id)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setActiveHeading(id)
+    }
+  }
+
   async function handleRetry() {
     setRetrying(true)
     try {
@@ -106,6 +176,7 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
     try {
       await api.post(`/api/lectures/${lectureId}/regenerate`)
       toast('Regenerating notes with a fresh draft', 'info')
+      setViewMode('preview')
       await load()
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Regeneration failed', 'error')
@@ -272,9 +343,50 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
                 </Button>
               </div>
             ) : lecture.markdown ? (
-              <div className="markdown-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{lecture.markdown}</ReactMarkdown>
-              </div>
+              <>
+                <div className="notes-toolbar" role="tablist" aria-label="Notes view mode">
+                  <div className="segmented">
+                    <button
+                      role="tab"
+                      aria-selected={viewMode === 'preview'}
+                      className={`segment ${viewMode === 'preview' ? 'active' : ''}`}
+                      onClick={() => setViewMode('preview')}
+                    >
+                      <ListTree size={13} strokeWidth={1.5} />
+                      Preview
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={viewMode === 'source'}
+                      className={`segment ${viewMode === 'source' ? 'active' : ''}`}
+                      onClick={() => setViewMode('source')}
+                    >
+                      <FileText size={13} strokeWidth={1.5} />
+                      Source
+                    </button>
+                  </div>
+                  <span className="caption text-muted">
+                    {toc.length > 0
+                      ? `${toc.length} sections · ${lecture.markdown.split('\n').length} lines`
+                      : `${lecture.markdown.split('\n').length} lines`}
+                  </span>
+                </div>
+
+                {viewMode === 'preview' ? (
+                  <div className="markdown-content">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={markdownComponents}
+                    >
+                      {lecture.markdown}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <pre className="markdown-source mono" tabIndex={0}>
+                    {lecture.markdown}
+                  </pre>
+                )}
+              </>
             ) : (
               <div className="empty-state">
                 <h2 className="empty-state-title">No notes yet</h2>
@@ -284,184 +396,212 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
           </article>
 
           {/* ------- Metadata sidebar ------- */}
-          <aside className="lecture-meta-card" aria-label="Lecture metadata">
-            <div className="lecture-meta-row">
-              {renaming ? (
-                <div className="rename-box">
-                  <input
-                    className="input"
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRenameSubmit()
-                      if (e.key === 'Escape') setRenaming(false)
-                    }}
-                    autoFocus
-                    maxLength={120}
-                    aria-label="Lecture title"
-                    disabled={renamingBusy}
-                  />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setRenaming(false)}
+          <aside className="lecture-side" aria-label="Lecture metadata">
+            <div className="lecture-meta-card">
+              <div className="lecture-meta-row">
+                {renaming ? (
+                  <div className="rename-box">
+                    <input
+                      className="input"
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameSubmit()
+                        if (e.key === 'Escape') setRenaming(false)
+                      }}
+                      autoFocus
+                      maxLength={120}
+                      aria-label="Lecture title"
                       disabled={renamingBusy}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleRenameSubmit}
-                      loading={renamingBusy}
-                      icon={<Check size={13} strokeWidth={1.5} />}
-                    >
-                      Save
-                    </Button>
+                    />
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setRenaming(false)}
+                        disabled={renamingBusy}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleRenameSubmit}
+                        loading={renamingBusy}
+                        icon={<Check size={13} strokeWidth={1.5} />}
+                      >
+                        Save
+                      </Button>
+                    </div>
                   </div>
+                ) : (
+                  <div className="lecture-title-row">
+                    <h2 className="subheading" style={{ lineHeight: 1.4, flex: 1 }}>
+                      {lecture.title}
+                    </h2>
+                    <button
+                      className="icon-btn"
+                      onClick={() => {
+                        setRenameValue(lecture.title)
+                        setRenaming(true)
+                      }}
+                      aria-label="Rename lecture"
+                      title="Rename lecture"
+                    >
+                      <Pencil size={13} strokeWidth={1.5} />
+                    </button>
+                  </div>
+                )}
+                <span className="caption">{lecture.subjectName}</span>
+              </div>
+
+              <div className="lecture-meta-divider" />
+
+              <div className="lecture-meta-row">
+                <span className="lecture-meta-label">Recorded</span>
+                <span className="lecture-meta-value num">{formatDate(lecture.recordedAt)}</span>
+              </div>
+
+              <div className="lecture-meta-row">
+                <span className="lecture-meta-label">Duration</span>
+                <span className="lecture-meta-value num">
+                  {formatDuration(lecture.durationSeconds)}
+                </span>
+              </div>
+
+              <div className="lecture-meta-row">
+                <span className="lecture-meta-label">Audio</span>
+                <span className="lecture-meta-value">
+                  {lecture.hasAudio ? 'Captured' : 'Timer session'}
+                </span>
+              </div>
+
+              <div className="lecture-meta-row">
+                <span className="lecture-meta-label">Status</span>
+                <span className="lecture-meta-status">
+                  <StatusPill status={lecture.status} />
+                </span>
+              </div>
+
+              <div className="lecture-meta-divider" />
+
+              {isDone ? (
+                <div className="meta-action-grid">
+                  <Button
+                    variant="secondary"
+                    onClick={handleCopy}
+                    icon={
+                      copied ? (
+                        <Check size={14} strokeWidth={1.5} />
+                      ) : (
+                        <Copy size={14} strokeWidth={1.5} />
+                      )
+                    }
+                  >
+                    {copied ? 'Copied' : 'Copy MD'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={handleDownload}
+                    icon={<Download size={14} strokeWidth={1.5} />}
+                  >
+                    Download
+                  </Button>
+                </div>
+              ) : null}
+
+              {github?.connected && github.username && github.repoName ? (
+                <a
+                  className="btn-secondary btn-block"
+                  href={`https://github.com/${github.username}/${github.repoName}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <ExternalLink size={14} strokeWidth={1.5} />
+                  View on GitHub
+                </a>
+              ) : (
+                <Button
+                  variant="secondary"
+                  block
+                  onClick={() => navigate('/settings')}
+                  icon={<ExternalLink size={14} strokeWidth={1.5} />}
+                >
+                  Connect GitHub
+                </Button>
+              )}
+
+              {canRegenerate ? (
+                <Button
+                  variant="secondary"
+                  block
+                  onClick={handleRegenerate}
+                  loading={regenerating}
+                  icon={<RefreshCw size={14} strokeWidth={1.5} />}
+                >
+                  Regenerate notes
+                </Button>
+              ) : null}
+
+              {lecture.status === 'FAILED' ? (
+                <Button
+                  variant="secondary"
+                  block
+                  onClick={handleRetry}
+                  loading={retrying}
+                  icon={<RefreshCw size={14} strokeWidth={1.5} />}
+                >
+                  Retry
+                </Button>
+              ) : null}
+
+              {confirmDelete ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <Button
+                    variant="danger"
+                    block
+                    onClick={handleDelete}
+                    loading={deleting}
+                    icon={<Trash2 size={14} strokeWidth={1.5} />}
+                  >
+                    Confirm delete
+                  </Button>
+                  <Button variant="ghost" block onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </Button>
                 </div>
               ) : (
-                <div className="lecture-title-row">
-                  <h2 className="subheading" style={{ lineHeight: 1.4, flex: 1 }}>
-                    {lecture.title}
-                  </h2>
-                  <button
-                    className="icon-btn"
-                    onClick={() => {
-                      setRenameValue(lecture.title)
-                      setRenaming(true)
-                    }}
-                    aria-label="Rename lecture"
-                    title="Rename lecture"
-                  >
-                    <Pencil size={13} strokeWidth={1.5} />
-                  </button>
-                </div>
+                <Button variant="ghost" block onClick={() => setConfirmDelete(true)}>
+                  Delete lecture
+                </Button>
               )}
-              <span className="caption">{lecture.subjectName}</span>
             </div>
 
-            <div className="lecture-meta-divider" />
-
-            <div className="lecture-meta-row">
-              <span className="lecture-meta-label">Recorded</span>
-              <span className="lecture-meta-value num">{formatDate(lecture.recordedAt)}</span>
-            </div>
-
-            <div className="lecture-meta-row">
-              <span className="lecture-meta-label">Duration</span>
-              <span className="lecture-meta-value num">
-                {formatDuration(lecture.durationSeconds)}
-              </span>
-            </div>
-
-            <div className="lecture-meta-row">
-              <span className="lecture-meta-label">Audio</span>
-              <span className="lecture-meta-value">
-                {lecture.hasAudio ? 'Captured' : 'Timer session'}
-              </span>
-            </div>
-
-            <div className="lecture-meta-row">
-              <span className="lecture-meta-label">Status</span>
-              <span className="lecture-meta-status">
-                <StatusPill status={lecture.status} />
-              </span>
-            </div>
-
-            <div className="lecture-meta-divider" />
-
-            {isDone ? (
-              <div className="meta-action-grid">
-                <Button
-                  variant="secondary"
-                  onClick={handleCopy}
-                  icon={
-                    copied ? (
-                      <Check size={14} strokeWidth={1.5} />
-                    ) : (
-                      <Copy size={14} strokeWidth={1.5} />
-                    )
-                  }
-                >
-                  {copied ? 'Copied' : 'Copy MD'}
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={handleDownload}
-                  icon={<Download size={14} strokeWidth={1.5} />}
-                >
-                  Download
-                </Button>
-              </div>
+            {/* ------- Table of contents ------- */}
+            {viewMode === 'preview' && toc.length > 0 ? (
+              <nav className="toc-card" aria-label="Table of contents">
+                <span className="toc-title">
+                  <ListTree size={12} strokeWidth={1.5} />
+                  On this page
+                </span>
+                <ul className="toc-list">
+                  {toc.map((entry) => (
+                    <li key={entry.id} className={entry.depth === 3 ? 'toc-h3' : ''}>
+                      <a
+                        href={`#${entry.id}`}
+                        className={`toc-link ${activeHeading === entry.id ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          scrollToHeading(entry.id)
+                        }}
+                      >
+                        {entry.text}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
             ) : null}
-
-            {github?.connected && github.username && github.repoName ? (
-              <a
-                className="btn-secondary btn-block"
-                href={`https://github.com/${github.username}/${github.repoName}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ textDecoration: 'none' }}
-              >
-                <ExternalLink size={14} strokeWidth={1.5} />
-                View on GitHub
-              </a>
-            ) : (
-              <Button
-                variant="secondary"
-                block
-                onClick={() => navigate('/settings')}
-                icon={<ExternalLink size={14} strokeWidth={1.5} />}
-              >
-                Connect GitHub
-              </Button>
-            )}
-
-            {canRegenerate ? (
-              <Button
-                variant="secondary"
-                block
-                onClick={handleRegenerate}
-                loading={regenerating}
-                icon={<RefreshCw size={14} strokeWidth={1.5} />}
-              >
-                Regenerate notes
-              </Button>
-            ) : null}
-
-            {lecture.status === 'FAILED' ? (
-              <Button
-                variant="secondary"
-                block
-                onClick={handleRetry}
-                loading={retrying}
-                icon={<RefreshCw size={14} strokeWidth={1.5} />}
-              >
-                Retry
-              </Button>
-            ) : null}
-
-            {confirmDelete ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <Button
-                  variant="danger"
-                  block
-                  onClick={handleDelete}
-                  loading={deleting}
-                  icon={<Trash2 size={14} strokeWidth={1.5} />}
-                >
-                  Confirm delete
-                </Button>
-                <Button variant="ghost" block onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button variant="ghost" block onClick={() => setConfirmDelete(true)}>
-                Delete lecture
-              </Button>
-            )}
           </aside>
         </div>
       )}

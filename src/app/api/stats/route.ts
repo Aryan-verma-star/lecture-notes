@@ -66,6 +66,27 @@ export async function GET(request: Request) {
 
   recent.sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())
 
+  // Activity series: daily lecture counts for the last 28 days (UTC-normalized)
+  const days = 28
+  const activity: { date: string; count: number }[] = []
+  const dayCounts = new Map<string, number>()
+  for (const l of recent) {
+    const d = new Date(l.recordedAt)
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+      d.getUTCDate()
+    ).padStart(2, '0')}`
+    dayCounts.set(key, (dayCounts.get(key) ?? 0) + 1)
+  }
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 86400000)
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+      d.getUTCDate()
+    ).padStart(2, '0')}`
+    activity.push({ date: key, count: dayCounts.get(key) ?? 0 })
+  }
+
   const finished = completed + failed
   return Response.json({
     totalSubjects: subjects.length,
@@ -76,6 +97,7 @@ export async function GET(request: Request) {
     processing,
     completionRate: finished > 0 ? Math.round((completed / finished) * 100) : null,
     firstLectureAt,
+    activity,
     subjects: perSubject,
     recentLectures: recent.slice(0, 6),
   })
