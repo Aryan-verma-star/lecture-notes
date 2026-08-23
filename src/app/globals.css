@@ -1219,6 +1219,159 @@ ul, ol {
 }
 
 /* ------------------------------------------------------------
+   Subject card edit action
+   ------------------------------------------------------------ */
+.subject-card {
+  position: relative;
+}
+
+.subject-card-edit {
+  opacity: 0;
+  margin-left: auto;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.subject-card:hover .subject-card-edit,
+.subject-card-edit:focus-visible {
+  opacity: 1;
+}
+
+.subject-card-edit:hover {
+  color: var(--wine-200);
+}
+
+/* Touch devices have no hover — keep the edit action visible */
+@media (hover: none) {
+  .subject-card-edit {
+    opacity: 1;
+  }
+}
+
+/* ------------------------------------------------------------
+   Batch select mode
+   ------------------------------------------------------------ */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-wine);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+  animation: page-in 0.15s ease-out;
+}
+
+.lecture-row-wrap {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background 0.15s ease;
+}
+
+.lecture-row-wrap:last-child {
+  border-bottom: none;
+}
+
+.lecture-row-wrap.selected {
+  background: rgba(114, 47, 55, 0.08);
+}
+
+.lecture-row-wrap .lecture-row-flex {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  border-bottom: none;
+}
+
+.lecture-row-wrap .lecture-row-flex:hover {
+  background: transparent;
+}
+
+.lecture-row-wrap.selected .lecture-row-flex:hover {
+  background: rgba(114, 47, 55, 0.1);
+}
+
+.lecture-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.lecture-check:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.lecture-row-wrap.selected .lecture-check {
+  color: var(--wine-300);
+}
+
+/* ------------------------------------------------------------
+   Interactive task checkboxes in notes
+   ------------------------------------------------------------ */
+.markdown-content li.task-item {
+  list-style: none;
+  margin-left: calc(var(--space-5) * -1 + 4px);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.markdown-content li.task-item input[type='checkbox'] {
+  accent-color: var(--wine-500);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.markdown-content li.task-item input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--wine-400);
+  outline-offset: 2px;
+}
+
+.markdown-content li.task-item:has(input:checked) {
+  color: var(--text-muted);
+}
+
+.markdown-content li.task-item:has(input:checked) span,
+.markdown-content li.task-item:has(input:checked) {
+  text-decoration: line-through;
+  text-decoration-color: rgba(154, 154, 166, 0.5);
+}
+
+/* ------------------------------------------------------------
+   Palette recent badge
+   ------------------------------------------------------------ */
+.palette-recent-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wine-300);
+  background: rgba(114, 47, 55, 0.14);
+  border: 1px solid rgba(114, 47, 55, 0.3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.5;
+}
+
+.palette-item.active .palette-recent-badge {
+  background: rgba(232, 209, 212, 0.12);
+  border-color: rgba(232, 209, 212, 0.25);
+  color: var(--wine-100);
+}
+
+/* ------------------------------------------------------------
    Page entrance (subtle, instant-feeling)
    ------------------------------------------------------------ */
 .page-enter {

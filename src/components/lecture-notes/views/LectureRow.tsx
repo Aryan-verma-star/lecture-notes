@@ -10,9 +10,10 @@ interface LectureRowProps {
   onClick: () => void
 }
 
-export function LectureRow({ lecture, onClick }: LectureRowProps) {
+/** The inner content of a lecture row (shared by list + batch-select layouts). */
+export function LectureRowContent({ lecture }: { lecture: Lecture }) {
   return (
-    <button className="lecture-row" onClick={onClick}>
+    <>
       <div className="lecture-row-main">
         <span className="lecture-row-title">{lecture.title}</span>
         <span className="lecture-row-meta">
@@ -25,6 +26,15 @@ export function LectureRow({ lecture, onClick }: LectureRowProps) {
       <span className="lecture-row-chevron">
         <ChevronRight size={16} strokeWidth={1.5} />
       </span>
+    </>
+  )
+}
+
+/** Standalone clickable row (used on the stats page). */
+export function LectureRow({ lecture, onClick }: LectureRowProps) {
+  return (
+    <button className="lecture-row" onClick={onClick}>
+      <LectureRowContent lecture={lecture} />
     </button>
   )
 }

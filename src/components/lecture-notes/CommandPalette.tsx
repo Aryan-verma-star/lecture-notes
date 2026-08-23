@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { BarChart3, BookOpen, CornerDownLeft, Mic, Search, Settings } from 'lucide-react'
+import { BarChart3, BookOpen, CornerDownLeft, Mic, Plus, Search, Settings } from 'lucide-react'
 import { api, type SearchResults } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { relativeTime } from '@/lib/format'
@@ -39,11 +39,45 @@ interface ResultItem {
 
 type Item = ActionItem | ResultItem
 
+/* ---------------- Recents memory ---------------- */
+
+const RECENTS_KEY = 'ln_recents'
+const RECENTS_LIMIT = 6
+
+type RecentsMap = Record<string, { kind: 'subject' | 'lecture'; at: number }>
+
+function readRecents(): RecentsMap {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(RECENTS_KEY)
+    return raw ? (JSON.parse(raw) as RecentsMap) : {}
+  } catch {
+    return {}
+  }
+}
+
+function rememberRecent(kind: 'subject' | 'lecture', id: string) {
+  try {
+    const map = readRecents()
+    map[id] = { kind, at: Date.now() }
+    // prune oldest beyond limit
+    const entries = Object.entries(map).sort((a, b) => b[1].at - a[1].at)
+    const pruned: RecentsMap = {}
+    for (const [key, value] of entries.slice(0, RECENTS_LIMIT)) {
+      pruned[key] = value
+    }
+    window.localStorage.setItem(RECENTS_KEY, JSON.stringify(pruned))
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResults | null>(null)
   const [loading, setLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [recents, setRecents] = useState<RecentsMap>({})
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -53,6 +87,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       setQuery('')
       setResults(null)
       setActiveIndex(0)
+      setRecents(readRecents())
       // Focus after mount so the input exists
       requestAnimationFrame(() => inputRef.current?.focus())
     }
@@ -90,6 +125,17 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         icon: <Mic size={15} strokeWidth={1.5} />,
         hint: 'R',
         run: () => navigate('/record'),
+      },
+      {
+        kind: 'action',
+        id: 'a-new-subject',
+        label: 'Create new subject',
+        icon: <Plus size={15} strokeWidth={1.5} />,
+        run: () => {
+          window.sessionStorage.setItem('ln:open-create-subject', '1')
+          navigate('/subjects')
+          window.dispatchEvent(new CustomEvent('ln:create-subject'))
+        },
       },
       {
         kind: 'action',
@@ -151,13 +197,20 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       if (item.kind === 'action') {
         item.run()
       } else if (item.kind === 'subject') {
+        rememberRecent('subject', item.id)
         navigate(`/subjects/${item.id}`)
       } else {
+        rememberRecent('lecture', item.id)
         navigate(`/lectures/${item.id}`)
       }
       onClose()
     },
     [onClose]
+  )
+
+  const isRecent = useCallback(
+    (item: Item) => item.kind !== 'action' && item.id in recents,
+    [recents]
   )
 
   // Keyboard navigation
@@ -260,6 +313,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                       )}
                     </span>
                     <span className="palette-item-label">{item.label}</span>
+                    {item.kind !== 'action' && isRecent(item) ? (
+                      <span className="palette-recent-badge">Recent</span>
+                    ) : null}
                     {item.kind === 'lecture' && item.status ? (
                       <StatusPill status={item.status} />
                     ) : null}

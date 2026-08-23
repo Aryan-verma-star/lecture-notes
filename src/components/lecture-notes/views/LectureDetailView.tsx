@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -43,7 +43,9 @@ function nodeText(node: React.ReactNode): string {
 }
 
 /** Markdown renderers that derive heading ids from heading text — stateless,
- *  so ids survive re-renders (scroll-spy, view toggles) without drift. */
+ *  so ids survive re-renders (scroll-spy, view toggles) without drift.
+ *  Task checkboxes render UNCONTROLLED (defaultChecked) so React never
+ *  reverts user toggles during unrelated re-renders. */
 function useMarkdownComponents(): Components {
   return useMemo(
     () => ({
@@ -52,6 +54,9 @@ function useMarkdownComponents(): Components {
       ),
       h3: ({ children }) => (
         <h3 id={slugify(nodeText(children)) || undefined}>{children}</h3>
+      ),
+      input: ({ checked, ...props }) => (
+        <input {...props} type="checkbox" defaultChecked={checked === true} />
       ),
     }),
     []
@@ -127,6 +132,54 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
     [lecture?.markdown]
   )
   const markdownComponents = useMarkdownComponents()
+
+  /* ---------------- Interactive task checkboxes ---------------- */
+
+  const markdownRef = useRef<HTMLDivElement>(null)
+  const [checks, setChecks] = useState<Record<string, boolean>>({})
+  const [checksInitFor, setChecksInitFor] = useState<string | null>(null)
+
+  // Initialize persisted checks once per lecture
+  useEffect(() => {
+    if (lecture && lecture.id !== checksInitFor) {
+      setChecksInitFor(lecture.id)
+      setChecks(lecture.taskChecks ?? {})
+    }
+  }, [lecture, checksInitFor])
+
+  // Enable + hydrate checkboxes in the rendered markdown
+  useEffect(() => {
+    const container = markdownRef.current
+    if (!container || viewMode !== 'preview') return
+    const boxes = container.querySelectorAll('input[type="checkbox"]')
+    boxes.forEach((node, i) => {
+      const box = node as HTMLInputElement
+      const key = `task-${i}`
+      box.disabled = false
+      box.dataset.taskIndex = key
+      const state = checks[key]
+      if (state !== undefined) box.checked = state
+      const li = box.closest('li')
+      if (li) li.classList.add('task-item')
+    })
+  }, [lecture?.markdown, viewMode, checks])
+
+  // Delegated toggle → update state + persist to the server
+  function handleMarkdownClick(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement
+    if (
+      target instanceof HTMLInputElement &&
+      target.type === 'checkbox' &&
+      target.dataset.taskIndex
+    ) {
+      const key = target.dataset.taskIndex
+      const next = { ...checks, [key]: target.checked }
+      setChecks(next)
+      api.post(`/api/lectures/${lectureId}/checks`, { checks: next }).catch(() => {
+        /* persistence failure is non-fatal */
+      })
+    }
+  }
 
   // Scroll-spy: highlight the TOC entry for the topmost visible heading
   useEffect(() => {
@@ -373,7 +426,7 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
                 </div>
 
                 {viewMode === 'preview' ? (
-                  <div className="markdown-content">
+                  <div className="markdown-content" ref={markdownRef} onClick={handleMarkdownClick}>
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={markdownComponents}

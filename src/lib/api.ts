@@ -108,6 +108,7 @@ export interface Lecture {
 
 export interface LectureDetail extends Lecture {
   subjectName: string
+  taskChecks?: Record<string, boolean> | null
 }
 
 export interface SubjectDetail {

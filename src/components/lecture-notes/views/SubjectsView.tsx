@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { BookOpen, Plus } from 'lucide-react'
+import { BookOpen, Pencil, Plus } from 'lucide-react'
 import { api, type Subject } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { relativeTime } from '@/lib/format'
@@ -11,14 +11,17 @@ import { EmptyState } from '@/components/lecture-notes/EmptyState'
 import { Modal } from '@/components/lecture-notes/Modal'
 import { useToast } from '@/context/ToastContext'
 
+type EditTarget = { id: string; name: string; description?: string | null } | null
+
 export function SubjectsView() {
   const { toast } = useToast()
   const [subjects, setSubjects] = useState<Subject[] | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<EditTarget>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(() => {
     api
@@ -31,24 +34,61 @@ export function SubjectsView() {
     load()
   }, [load])
 
-  async function handleCreate() {
+  function openCreate() {
+    setEditTarget(null)
+    setName('')
+    setDescription('')
+    setFormError(null)
+    setModalOpen(true)
+  }
+
+  function openEdit(subject: EditTarget) {
+    if (!subject) return
+    setEditTarget(subject)
+    setName(subject.name)
+    setDescription(subject.description ?? '')
+    setFormError(null)
+    setModalOpen(true)
+  }
+
+  // Allow the command palette to trigger subject creation:
+  // live event when already mounted, sessionStorage flag when navigating here
+  useEffect(() => {
+    if (window.sessionStorage.getItem('ln:open-create-subject') === '1') {
+      window.sessionStorage.removeItem('ln:open-create-subject')
+      openCreate()
+    }
+    const onCreate = () => openCreate()
+    window.addEventListener('ln:create-subject', onCreate)
+    return () => window.removeEventListener('ln:create-subject', onCreate)
+  }, [])
+
+  async function handleSubmit() {
     setFormError(null)
     if (!name.trim()) {
       setFormError('Give the subject a name.')
       return
     }
-    setCreating(true)
+    setSaving(true)
     try {
-      await api.post('/api/subjects', { name: name.trim(), description: description.trim() })
-      toast('Subject created', 'success')
+      if (editTarget) {
+        await api.patch(`/api/subjects/${editTarget.id}`, {
+          name: name.trim(),
+          description: description.trim(),
+        })
+        toast('Subject updated', 'success')
+      } else {
+        await api.post('/api/subjects', { name: name.trim(), description: description.trim() })
+        toast('Subject created', 'success')
+      }
       setModalOpen(false)
       setName('')
       setDescription('')
       load()
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not create subject.')
+      setFormError(err instanceof Error ? err.message : 'Something went wrong.')
     } finally {
-      setCreating(false)
+      setSaving(false)
     }
   }
 
@@ -59,7 +99,7 @@ export function SubjectsView() {
         <Button
           variant="secondary"
           icon={<Plus size={16} strokeWidth={1.5} />}
-          onClick={() => setModalOpen(true)}
+          onClick={openCreate}
         >
           New Subject
         </Button>
@@ -83,17 +123,21 @@ export function SubjectsView() {
           action={{
             label: 'Create Subject',
             icon: <Plus size={16} strokeWidth={1.5} />,
-            onClick: () => setModalOpen(true),
+            onClick: openCreate,
           }}
         />
       ) : (
         <div className="subject-grid" role="list">
           {subjects.map((subject) => (
-            <button
+            <div
               key={subject.id}
               role="listitem"
               className="subject-card"
               onClick={() => navigate(`/subjects/${subject.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') navigate(`/subjects/${subject.id}`)
+              }}
+              tabIndex={0}
               aria-label={`Open ${subject.name}`}
             >
               <span className="subject-card-header">
@@ -102,6 +146,17 @@ export function SubjectsView() {
                   aria-hidden="true"
                 />
                 <span className="heading">{subject.name}</span>
+                <button
+                  className="icon-btn subject-card-edit"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openEdit(subject)
+                  }}
+                  aria-label={`Edit ${subject.name}`}
+                  title="Edit subject"
+                >
+                  <Pencil size={13} strokeWidth={1.5} />
+                </button>
               </span>
 
               <span className="subject-card-meta caption">
@@ -117,7 +172,7 @@ export function SubjectsView() {
                   ? `Latest: ${subject.lastLectureTitle}`
                   : subject.description || 'No lectures recorded yet.'}
               </span>
-            </button>
+            </div>
           ))}
         </div>
       )}
@@ -128,8 +183,10 @@ export function SubjectsView() {
           setModalOpen(false)
           setFormError(null)
         }}
-        title="New Subject"
-        description="Group your lectures by course or topic."
+        title={editTarget ? 'Edit Subject' : 'New Subject'}
+        description={
+          editTarget ? 'Rename the subject or update its description.' : 'Group your lectures by course or topic.'
+        }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <Field label="Name" error={formError}>
@@ -140,7 +197,7 @@ export function SubjectsView() {
               maxLength={80}
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Enter') handleSubmit()
               }}
             />
           </Field>
@@ -158,8 +215,8 @@ export function SubjectsView() {
             <Button variant="ghost" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} loading={creating}>
-              Create Subject
+            <Button onClick={handleSubmit} loading={saving}>
+              {editTarget ? 'Save Changes' : 'Create Subject'}
             </Button>
           </div>
         </div>

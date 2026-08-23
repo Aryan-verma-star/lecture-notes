@@ -112,9 +112,48 @@ Unresolved issues / risks:
 - Level meter only renders when mic permission granted (headless has no mic — verified via logic, not visually).
 
 Next-phase priorities (for the next webDevReview):
-1. Subject editing (rename/description) from Subjects page; subject card context menu.
-2. Command palette: recent-items memory + "Create new subject" action from palette.
-3. Notes: checkbox interactivity (persist task-list checks), print stylesheet.
+1. ~~Subject editing (rename/description)~~ ✅ done in round 4
+2. ~~Command palette: recent-items memory + "Create new subject" action~~ ✅ done in round 4
+3. ~~Notes: checkbox interactivity (persist task-list checks)~~ ✅ done in round 4 (print stylesheet still open)
 4. Stats: weekly grouping toggle; duration-weighted activity (minutes per day, not just counts).
-5. Batch lecture actions (multi-select delete) on subject detail.
+5. ~~Batch lecture actions (multi-select delete)~~ ✅ done in round 4
+6. Real ASR integration via z-ai-web-dev-sdk in the audio route (optional big win).
+
+---
+Task ID: 4-a
+Agent: webDevReview (recurring cron)
+Task: Round 4 — QA regression pass + implement: subject editing (rename/description), palette create-subject action with recents memory, interactive task checkboxes persisted to DB, batch lecture multi-select delete.
+
+Work Log:
+- QA pass first: subjects/palette/stats all working (no regressions). Restarted dev server proactively after schema change (round-2 lesson: stale Turbopack/Prisma cache).
+- Schema: added `taskChecks String?` (JSON map of checkbox states) to Lecture; db:push + server restart.
+- Backend additions:
+  - `PATCH /api/subjects/[id]` — rename/description update with validation (non-empty name ≤80 chars, duplicate-name check scoped to user).
+  - `POST /api/lectures/[id]/checks` — persists task-checkbox map; sanitizes to flat {key: boolean} with key pattern `^[a-z0-9-]{1,64}$` and 200-entry cap; null when empty.
+  - `POST /api/lectures/batch-delete` — deleteMany scoped via subject relation (max 100 ids), returns { deleted: count }.
+  - Lecture GET now returns parsed `taskChecks`.
+- SubjectsView: subject cards converted to div (keyboard accessible via tabIndex/Enter) with hover-revealed pencil edit button (visible on touch devices via `@media (hover: none)`); the New/Edit modal is unified (title/button label switch); duplicate-name error surfaces inline.
+- CommandPalette: new "Create new subject" action — sets sessionStorage flag `ln:open-create-subject`, navigates to /subjects, dispatches `ln:create-subject` CustomEvent; SubjectsView listens for the live event AND checks the flag on mount (covers cross-page navigation). Recents memory: `ln_recents` localStorage map (6 max) recorded when opening subjects/lectures via palette; "RECENT" badge chip on matching results.
+- LectureDetailView: interactive task checkboxes — react-markdown renders GFM task lists; custom `input` component renders UNCONTROLLED checkboxes (defaultChecked) so React re-renders never revert user toggles; post-render effect enables boxes, assigns `task-{i}` indices via dataset, applies persisted state; delegated container onClick updates React state + POSTs to /checks; CSS: task items list-style none, flex layout, wine accent checkboxes, line-through + muted on checked (`:has()` selector).
+- SubjectDetailView: Select mode toggle in toolbar; rows restructured as `.lecture-row-wrap` (checkbox column + flex row) to avoid nested buttons; batch bar with count, Select all/Deselect all, Delete selected (danger); auto-exits select mode after delete; LectureRow refactored into `LectureRowContent` (shared) + `LectureRow` (standalone button for StatsView).
+- BUGS FOUND & FIXED:
+  1. `useRef is not defined` client crash — missing import after adding markdownRef (caught by E2E error overlay).
+  2. Checkbox toggles silently reverted: react-markdown renders CONTROLLED inputs (`checked={false}`), so any React re-render (scroll-spy/polling) reset user clicks. Fixed with uncontrolled `defaultChecked` override in the input component.
+- CSS (+~150 lines): subject-card-edit reveal, batch bar, lecture-row-wrap/selected/lecture-check, task-item checkbox styles with checked strikethrough, palette-recent-badge, touch-device fallback.
+
+Stage Summary:
+- E2E verified: subject renamed "Mathematics → Mathematics II" + description updated (persisted, toast shown); palette create-subject action works cross-page (from /stats → subjects + modal opens); palette navigation records recents → RECENT badge appears on next open (localStorage confirmed); checkboxes render for GFM task lists (4 boxes), clicks toggle + persist to server, state survives reload ([true,true,false,false] restored with strikethrough); batch mode: select 2 → count updates, Select all → 4/4, delete 1 → toast "Deleted 1 lecture", 3 rows remain, mode auto-exits. VLM: "highly polished… interactive checkboxes… strikethrough… sophisticated dark theme." Lint clean (0/0). dev.log: no errors. Mobile: checkboxes + layout verified at 390px.
+
+Unresolved issues / risks:
+- Narrow init race: clicking a checkbox in the same tick as lecture-load init could be overwritten by initial checks state (sub-100ms window, acceptable).
+- After Regenerate, task-check indices may map to different checkboxes in the new template (checks are positional; acceptable, resets on next visit).
+- agent-browser input flakiness: none this round.
+- Dev server: running detached; restart command in worklog if it dies.
+
+Next-phase priorities (for the next webDevReview):
+1. Stats: duration-weighted activity chart (minutes/day) + weekly grouping toggle.
+2. Print stylesheet for notes (print-optimized, hide chrome).
+3. Subject detail: retry/regenerate from row context; keyboard navigation in lecture lists (j/k).
+4. Notes: anchor links on headings (hover ¶ link); reading progress indicator.
+5. Empty-state illustrations via subtle SVG patterns (stay within design language).
 6. Real ASR integration via z-ai-web-dev-sdk in the audio route (optional big win).

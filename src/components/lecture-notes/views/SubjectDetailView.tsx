@@ -1,13 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Mic, Search, Trash2, X } from 'lucide-react'
+import { ArrowLeft, CheckSquare, Mic, Search, Square, Trash2, X } from 'lucide-react'
 import { api, type LectureStatus, type SubjectDetail } from '@/lib/api'
 import { navigate, useBack } from '@/lib/router'
 import { Button } from '@/components/lecture-notes/Button'
 import { EmptyState } from '@/components/lecture-notes/EmptyState'
 import { Select } from '@/components/lecture-notes/Input'
-import { LectureRow } from './LectureRow'
+import { LectureRowContent } from './LectureRow'
 import { useToast } from '@/context/ToastContext'
 
 type SortKey = 'newest' | 'oldest' | 'title'
@@ -29,6 +29,9 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortKey, setSortKey] = useState<SortKey>('newest')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [batchDeleting, setBatchDeleting] = useState(false)
   const back = useBack('/subjects')
 
   const load = useCallback(() => {
@@ -70,6 +73,33 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
   }, [subject, query, statusFilter, sortKey])
 
   const hasFilters = query.trim() !== '' || statusFilter !== 'all' || sortKey !== 'newest'
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function handleBatchDelete() {
+    if (selected.size === 0) return
+    setBatchDeleting(true)
+    try {
+      const res = await api.post<{ deleted: number }>('/api/lectures/batch-delete', {
+        ids: [...selected],
+      })
+      toast(`Deleted ${res.deleted} ${res.deleted === 1 ? 'lecture' : 'lectures'}`, 'success')
+      setSelected(new Set())
+      setSelectMode(false)
+      load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Batch delete failed', 'error')
+    } finally {
+      setBatchDeleting(false)
+    }
+  }
 
   async function handleDelete() {
     try {
@@ -184,7 +214,49 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
                   <option value="oldest">Oldest first</option>
                   <option value="title">Title A–Z</option>
                 </Select>
+                <Button
+                  variant={selectMode ? 'primary' : 'ghost'}
+                  onClick={() => {
+                    setSelectMode((m) => !m)
+                    setSelected(new Set())
+                  }}
+                  icon={<CheckSquare size={14} strokeWidth={1.5} />}
+                  aria-pressed={selectMode}
+                >
+                  {selectMode ? 'Cancel' : 'Select'}
+                </Button>
               </div>
+
+              {/* -------- Batch action bar -------- */}
+              {selectMode ? (
+                <div className="batch-bar" role="toolbar" aria-label="Batch actions">
+                  <span className="caption">
+                    {selected.size} of {filteredLectures.length} selected
+                  </span>
+                  <button
+                    className="link-wine"
+                    onClick={() =>
+                      setSelected(
+                        selected.size === filteredLectures.length
+                          ? new Set()
+                          : new Set(filteredLectures.map((l) => l.id))
+                      )
+                    }
+                  >
+                    {selected.size === filteredLectures.length ? 'Deselect all' : 'Select all'}
+                  </button>
+                  <div style={{ flex: 1 }} />
+                  <Button
+                    variant="danger"
+                    onClick={handleBatchDelete}
+                    loading={batchDeleting}
+                    disabled={selected.size === 0}
+                    icon={<Trash2 size={13} strokeWidth={1.5} />}
+                  >
+                    Delete selected
+                  </Button>
+                </div>
+              ) : null}
 
               {filteredLectures.length === 0 ? (
                 <div className="lecture-empty-filter">
@@ -207,11 +279,36 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
               ) : (
                 <div className="lecture-list" role="list">
                   {filteredLectures.map((lecture) => (
-                    <LectureRow
+                    <div
                       key={lecture.id}
-                      lecture={lecture}
-                      onClick={() => navigate(`/lectures/${lecture.id}`)}
-                    />
+                      role="listitem"
+                      className={`lecture-row-wrap ${selected.has(lecture.id) ? 'selected' : ''}`}
+                    >
+                      {selectMode ? (
+                        <button
+                          className="lecture-check"
+                          onClick={() => toggleSelected(lecture.id)}
+                          aria-label={`Select ${lecture.title}`}
+                          aria-pressed={selected.has(lecture.id)}
+                        >
+                          {selected.has(lecture.id) ? (
+                            <CheckSquare size={16} strokeWidth={1.5} />
+                          ) : (
+                            <Square size={16} strokeWidth={1.5} />
+                          )}
+                        </button>
+                      ) : null}
+                      <div
+                        className="lecture-row lecture-row-flex"
+                        onClick={() =>
+                          selectMode
+                            ? toggleSelected(lecture.id)
+                            : navigate(`/lectures/${lecture.id}`)
+                        }
+                      >
+                        <LectureRowContent lecture={lecture} />
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}

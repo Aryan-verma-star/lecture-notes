@@ -41,6 +41,7 @@ model Lecture {
   recordedAt          DateTime  @default(now())
   durationSeconds     Int?
   markdown            String?
+  taskChecks          String?   // JSON object: { "task-index": true } persisted checkbox states
   errorMessage        String?
   failFlag            Boolean   @default(false)
   regenCount          Int       @default(0)
