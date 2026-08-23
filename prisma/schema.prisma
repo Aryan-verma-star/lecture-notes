@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  passwordHash    String
+  githubConnected Boolean  @default(false)
+  githubUsername  String?
+  githubRepoName  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  subjects        Subject[]
+}
+
+model Subject {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lectures    Lecture[]
+
+  @@index([userId])
+}
+
+model Lecture {
+  id                  String    @id @default(cuid())
+  subjectId           String
+  subject             Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title               String
+  status              String    @default("RECORDING") // RECORDING | UPLOADED | PROCESSING | COMPLETED | FAILED
+  recordedAt          DateTime  @default(now())
+  durationSeconds     Int?
+  markdown            String?
+  errorMessage        String?
+  failFlag            Boolean   @default(false)
+  processingStartedAt DateTime?
+  hasAudio            Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([subjectId])
+}
