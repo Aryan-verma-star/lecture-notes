@@ -1,9 +1,11 @@
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
+import { runAiPipeline } from '@/lib/asr-pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
-/** Re-runs the processing pipeline for a failed lecture. Retries always succeed. */
+/** Re-runs processing for a failed lecture. Real-audio lectures re-run the AI
+ *  pipeline (an existing transcript is reused — only notes are regenerated). */
 export async function POST(request: Request, { params }: Params) {
   const user = await getAuthUser(request)
   if (!user) return unauthorized()
@@ -17,7 +19,9 @@ export async function POST(request: Request, { params }: Params) {
     return Response.json({ error: 'Only failed lectures can be retried.' }, { status: 409 })
   }
 
-  const updated = await db.lecture.update({
+  const useAiPipeline = Boolean(lecture.audioPath)
+
+  await db.lecture.update({
     where: { id },
     data: {
       status: 'PROCESSING',
@@ -25,8 +29,11 @@ export async function POST(request: Request, { params }: Params) {
       failFlag: false,
       errorMessage: null,
       markdown: null,
+      pipelineStage: null,
     },
   })
 
-  return Response.json({ status: updated.status })
+  if (useAiPipeline) void runAiPipeline(id)
+
+  return Response.json({ status: 'PROCESSING', pipeline: useAiPipeline ? 'ai' : 'simulated' })
 }

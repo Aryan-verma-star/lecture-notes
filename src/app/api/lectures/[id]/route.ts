@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
 import { syncLectureState } from '@/lib/lecture-state'
+import { deleteAudioFile } from '@/lib/asr-pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -25,6 +26,7 @@ export async function GET(request: Request, { params }: Params) {
     recordedAt: synced.recordedAt,
     durationSeconds: synced.durationSeconds,
     markdown: synced.markdown,
+    hasTranscript: Boolean(synced.transcript),
     taskChecks: synced.taskChecks ? JSON.parse(synced.taskChecks) : null,
     errorMessage: synced.errorMessage,
     hasAudio: synced.hasAudio,
@@ -66,6 +68,7 @@ export async function DELETE(request: Request, { params }: Params) {
   })
   if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
 
+  await deleteAudioFile(lecture.audioPath)
   await db.lecture.delete({ where: { id } })
   return Response.json({ ok: true })
 }

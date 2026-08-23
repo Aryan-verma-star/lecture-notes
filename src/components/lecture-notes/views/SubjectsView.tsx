@@ -1,21 +1,24 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, Pencil, Plus } from 'lucide-react'
 import { api, type Subject } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { relativeTime } from '@/lib/format'
 import { Button } from '@/components/lecture-notes/Button'
-import { Field, Input, Textarea } from '@/components/lecture-notes/Input'
+import { Field, Input, Select, Textarea } from '@/components/lecture-notes/Input'
 import { EmptyState } from '@/components/lecture-notes/EmptyState'
 import { Modal } from '@/components/lecture-notes/Modal'
 import { useToast } from '@/context/ToastContext'
 
 type EditTarget = { id: string; name: string; description?: string | null } | null
 
+type SubjectSort = 'recent' | 'name' | 'count'
+
 export function SubjectsView() {
   const { toast } = useToast()
   const [subjects, setSubjects] = useState<Subject[] | null>(null)
+  const [sortBy, setSortBy] = useState<SubjectSort>('recent')
   const [modalOpen, setModalOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<EditTarget>(null)
   const [name, setName] = useState('')
@@ -63,6 +66,19 @@ export function SubjectsView() {
     return () => window.removeEventListener('ln:create-subject', onCreate)
   }, [])
 
+  const sortedSubjects = useMemo(() => {
+    if (!subjects) return null
+    const list = [...subjects]
+    list.sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name)
+      if (sortBy === 'count') return b.lectureCount - a.lectureCount || a.name.localeCompare(b.name)
+      const at = a.lastLectureAt ? new Date(a.lastLectureAt).getTime() : 0
+      const bt = b.lastLectureAt ? new Date(b.lastLectureAt).getTime() : 0
+      return bt - at || a.name.localeCompare(b.name)
+    })
+    return list
+  }, [subjects, sortBy])
+
   async function handleSubmit() {
     setFormError(null)
     if (!name.trim()) {
@@ -96,13 +112,27 @@ export function SubjectsView() {
     <>
       <div className="page-header">
         <h1 className="display">Subjects</h1>
-        <Button
-          variant="secondary"
-          icon={<Plus size={16} strokeWidth={1.5} />}
-          onClick={openCreate}
-        >
-          New Subject
-        </Button>
+        <div className="subjects-header-actions">
+          {subjects !== null && subjects.length > 1 ? (
+            <Select
+              className="subjects-sort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SubjectSort)}
+              aria-label="Sort subjects"
+            >
+              <option value="recent">Recent activity</option>
+              <option value="name">Name A–Z</option>
+              <option value="count">Most lectures</option>
+            </Select>
+          ) : null}
+          <Button
+            variant="secondary"
+            icon={<Plus size={16} strokeWidth={1.5} />}
+            onClick={openCreate}
+          >
+            New Subject
+          </Button>
+        </div>
       </div>
 
       {subjects === null ? (
@@ -115,7 +145,7 @@ export function SubjectsView() {
             </div>
           ))}
         </div>
-      ) : subjects.length === 0 ? (
+      ) : sortedSubjects === null || sortedSubjects.length === 0 ? (
         <EmptyState
           icon={<BookOpen size={48} strokeWidth={1} />}
           title="No subjects yet"
@@ -128,7 +158,7 @@ export function SubjectsView() {
         />
       ) : (
         <div className="subject-grid" role="list">
-          {subjects.map((subject) => (
+          {sortedSubjects.map((subject) => (
             <div
               key={subject.id}
               role="listitem"

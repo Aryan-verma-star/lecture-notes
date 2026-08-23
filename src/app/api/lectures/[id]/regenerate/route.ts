@@ -1,12 +1,13 @@
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
+import { runAiPipeline } from '@/lib/asr-pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
 /**
- * Re-runs the AI pipeline for a completed or failed lecture.
- * Regeneration rotates the note template (via regenCount) and always
- * succeeds, so users can compare different note drafts.
+ * Re-runs note generation for a completed or failed lecture.
+ * Real-audio lectures keep their transcript and only re-run the LLM stage
+ * (regenCount nudges the simulated template rotation for timer sessions).
  */
 export async function POST(request: Request, { params }: Params) {
   const user = await getAuthUser(request)
@@ -21,6 +22,8 @@ export async function POST(request: Request, { params }: Params) {
     return Response.json({ error: 'This lecture is already processing.' }, { status: 409 })
   }
 
+  const useAiPipeline = Boolean(lecture.audioPath)
+
   const updated = await db.lecture.update({
     where: { id },
     data: {
@@ -30,8 +33,11 @@ export async function POST(request: Request, { params }: Params) {
       errorMessage: null,
       markdown: null,
       regenCount: lecture.regenCount + 1,
+      pipelineStage: null,
     },
   })
 
-  return Response.json({ status: updated.status, regenCount: updated.regenCount })
+  if (useAiPipeline) void runAiPipeline(id)
+
+  return Response.json({ status: updated.status, pipeline: useAiPipeline ? 'ai' : 'simulated' })
 }

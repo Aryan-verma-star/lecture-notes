@@ -1,14 +1,16 @@
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
+import { audioPathFor, runAiPipeline, saveAudioFile } from '@/lib/asr-pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
 const MAX_AUDIO_BYTES = 200 * 1024 * 1024 // 200 MB
 
 /**
- * Accepts the recorded/uploaded audio for a lecture and kicks off the
- * (simulated) AI processing pipeline. The audio payload is inspected then
- * discarded — transcription is simulated server-side on a timer.
+ * Accepts the recorded/uploaded audio for a lecture and kicks off the REAL AI
+ * pipeline (ASR → LLM notes via z-ai-web-dev-sdk). The audio file is stored on
+ * disk so Retry / Regenerate can re-run the pipeline without a re-upload.
+ * Timer-only sessions (no file) fall back to the simulated pipeline.
  */
 export async function POST(request: Request, { params }: Params) {
   const user = await getAuthUser(request)
@@ -25,6 +27,7 @@ export async function POST(request: Request, { params }: Params) {
 
   let hasAudio = false
   let durationSeconds: number | null = null
+  let savedPath: string | null = null
 
   const contentType = request.headers.get('content-type') || ''
   if (contentType.includes('multipart/form-data')) {
@@ -41,6 +44,8 @@ export async function POST(request: Request, { params }: Params) {
         return Response.json({ error: 'Audio file exceeds the 200 MB limit.' }, { status: 413 })
       }
       hasAudio = true
+      savedPath = audioPathFor(id, file.type || '', file.name)
+      await saveAudioFile(savedPath, await file.arrayBuffer())
     }
   } else {
     const body = await request.json().catch(() => null)
@@ -55,10 +60,18 @@ export async function POST(request: Request, { params }: Params) {
       status: 'PROCESSING',
       processingStartedAt: new Date(),
       hasAudio,
+      audioPath: savedPath ?? lecture.audioPath,
       durationSeconds: durationSeconds ?? lecture.durationSeconds,
-      failFlag: Math.random() < 0.15, // occasional simulated transcription failure
+      failFlag: !hasAudio && Math.random() < 0.15, // simulated failure only for timer sessions
+      errorMessage: null,
+      markdown: null,
     },
   })
+
+  // Real AI pipeline when audio exists; simulation otherwise (syncLectureState)
+  if (hasAudio) {
+    void runAiPipeline(id)
+  }
 
   return Response.json({ status: updated.status, lectureId: updated.id })
 }

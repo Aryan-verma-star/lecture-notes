@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
 import { computeProgress, syncLectureState } from '@/lib/lecture-state'
+import { pipelineProgress } from '@/lib/asr-pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -24,6 +25,11 @@ export async function GET(request: Request, { params }: Params) {
         substage: synced.status === 'COMPLETED' ? 'Completed' : 'Transcription failed',
         errorMessage: synced.errorMessage,
       })
+    }
+    // Real AI pipeline in flight — report its actual stage
+    if (synced.pipelineStage) {
+      const p = pipelineProgress(synced.pipelineStage)
+      return Response.json({ status: 'PROCESSING', ...p })
     }
     return Response.json(computeProgress(synced))
   }

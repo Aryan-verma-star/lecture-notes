@@ -42,6 +42,9 @@ model Lecture {
   durationSeconds     Int?
   markdown            String?
   taskChecks          String?   // JSON object: { "task-index": true } persisted checkbox states
+  transcript          String?   // real ASR transcript (when audio was processed by the AI pipeline)
+  pipelineStage       String?   // NULL = simulated timer pipeline; TRANSCRIBING | GENERATING = real AI pipeline
+  audioPath           String?   // absolute path of the stored audio file on disk
   errorMessage        String?
   failFlag            Boolean   @default(false)
   regenCount          Int       @default(0)

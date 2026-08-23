@@ -187,9 +187,49 @@ Unresolved issues / risks:
 - j/k active only outside select mode / filter inputs (by design).
 
 Next-phase priorities (for the next webDevReview):
-1. Real ASR integration via z-ai-web-dev-sdk in the audio upload route — the last major simulated subsystem (big win; needs z-ai CLI/server-side SDK check first).
-2. Subjects grid: sort/search controls for many subjects; card count badge refinement.
-3. Settings: appearance section (font size toggle, reduced-motion respect is already global); data export (all notes as .md zip via client-side download).
-4. Record: post-stop title edit before upload (naming after stop).
-5. Empty-state SVG illustrations (subtle, within design language).
-6. Notes: word count / estimated reading time in toolbar caption.
+1. ~~Real ASR integration via z-ai-web-dev-sdk~~ ✅ done in round 6 (full AI pipeline: ffmpeg chunked ASR + LLM notes)
+2. ~~Subjects grid: sort controls~~ ✅ done in round 6 (Recent/Name/Count)
+3. ~~Notes: word count / estimated reading time~~ ✅ done in round 6
+4. Settings: appearance section; data export (all notes as .md zip).
+5. Record: post-stop title edit before upload (naming after stop).
+6. Empty-state SVG illustrations (subtle, within design language).
+
+---
+Task ID: 6-a
+Agent: webDevReview (recurring cron)
+Task: Round 6 — QA pass + REAL ASR integration: audio files are now genuinely transcribed via z-ai-web-dev-sdk (ffmpeg-chunked for the 30s API limit) and notes are LLM-generated from the actual transcript. Plus word-count/reading-time, subjects sort, and "AI transcribed" metadata.
+
+Work Log:
+- Read ASR + LLM + TTS SKILL.md docs before implementation (per skill rules).
+- Schema: added `transcript`, `pipelineStage`, `audioPath` to Lecture; db:push + detached server restart (cache lesson applied).
+- NEW `src/lib/asr-pipeline.ts` — the real AI pipeline (server-side only, fire-and-forget from the upload route):
+  - Audio storage: uploads saved to /tmp/ln-asr/<lectureId>.<ext> so Retry/Regenerate re-run without re-upload; delete routes (single + batch) now unlink stored audio.
+  - ASR 30-second API limit discovered via a real 400 error ("文件时长限制为0-30秒") → built ffmpeg chunker: normalize any format → mono 16 kHz PCM WAV (ffmpeg spawn), parse RIFF header for duration, slice ≤25 s chunks (header+PCM slice), transcribe each chunk sequentially, join; MAX_CHUNKS=16 (~6.5 min) with explicit truncation note appended to the transcript.
+  - Stage tracking: pipelineStage TRANSCRIBING (35%) → GENERATING (75%) → COMPLETED; every stage persisted; failures → FAILED with real error message.
+  - Note generation: zai.chat.completions with a study-notes system prompt (H1 title, transcript-attribution blockquote, Overview/Key Concepts/Details H2s, Summary table, GFM Study Checklist; faithful-to-transcript rule, no invented facts, ≤700 words); transcript capped at 24k chars; accidental document-fences stripped.
+  - Staleness guard: pipeline lectures stuck PROCESSING >8 min (e.g. server died mid-run) are marked FAILED with a retry hint — inside syncLectureState.
+- `syncLectureState` guard: never timer-completes lectures with pipelineStage set (real pipeline owns them); timer simulation remains for timer-only sessions (15% random fail still simulated there only).
+- Routes updated: audio upload (saves file, spawns runAiPipeline, failFlag only for timer sessions); status (pipeline-aware substages "Transcribing audio (AI)" / "Structuring notes (AI)"); retry + regenerate (audio lectures re-run AI pipeline; regenerate reuses transcript and re-runs only the LLM stage); lecture GET returns hasTranscript.
+- Frontend: notes toolbar caption now "N sections · X words · Y min read" (noteStats strips md syntax, 200 wpm); Audio meta shows "AI transcribed" vs "Captured" vs "Timer session"; subjects page gained a sort select (Recent activity / Name A–Z / Most lectures, hidden when ≤1 subject) with responsive stacking.
+- E2E test data: generated a real 52 s spoken lecture via TTS CLI (Newton's laws physics lecture), uploaded through the UI.
+- BUGS FOUND & FIXED:
+  1. ASR 400 on >30 s audio (real API limit) → ffmpeg chunking pipeline (above).
+  2. Status route rewrite dropped both the `include: subject` AND the subjectName argument → timer lectures completed with "· the course ·" default subject in the blockquote; passing include + argument again (verified via regenerate → "· Mathematics II ·").
+
+Stage Summary:
+- E2E verified end-to-end REAL pipeline: TTS-generated 52 s speech WAV → UI upload → ffmpeg normalize + 3×25 s chunk ASR → genuine transcript → LLM structured notes ("Physics 201: Newton Laws of Motion": all three laws, F = ma, scalar/vector distinctions, 5-item Study Checklist) → Completed; meta shows "AI transcribed"; interactive checkboxes work on AI notes (5 boxes, toggles persist); toolbar "4 sections · 138 words · 1 min read"; retry after the initial 400 error re-ran the pipeline from the stored file. Fallback verified: timer-only session completed via simulated pipeline at 30 s (template blockquote, "Timer session" meta); regenerate now stamps correct subject name. Subjects sort: Recent → Mathematics II first; Name A–Z → alphabetical; Count → lecture-heavy first. VLM confirmed notes page, "AI transcribed" badge, word count. Lint clean (0/0). dev.log: no errors after fixes.
+- Data note: demo account now has 3 subjects (Mathematics II w/ 5 lectures incl. AI-transcribed Physics lecture, Astronomy, Chemistry) — extra subjects added to verify sorting.
+
+Unresolved issues / risks:
+- ASR chunking caps at ~6.5 min per run (MAX_CHUNKS=16) with an honest truncation note in the transcript — a real deployment needs a job queue for full lectures.
+- Audio files live in /tmp/ln-asr (ephemeral in sandbox; fine for the demo, would move to object storage in prod).
+- runAiPipeline is fire-and-forget in the Next.js dev process — server restarts mid-run leave PROCESSING until the 8-min staleness guard fails them (retryable).
+- Sequential chunk transcription (no parallelism) — fine at current scale.
+
+Next-phase priorities (for the next webDevReview):
+1. Settings → Data & appearance: export-all-notes (.md bundle, client-side zip), font-size preference (persisted).
+2. Record: post-stop title edit before upload; upload progress indicator for large files.
+3. Transcript viewer: show the raw ASR transcript (collapsible section under notes) for AI-transcribed lectures.
+4. Empty-state SVG illustrations (subtle, within design language).
+5. Notes: flashcard-style review mode generated from Study Checklist items.
+6. Optional: parallel chunk transcription + per-chunk progress in status payload.

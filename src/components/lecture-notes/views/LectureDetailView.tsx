@@ -78,6 +78,18 @@ function nodeText(node: React.ReactNode): string {
   return ''
 }
 
+/** Rough word count + estimated reading time (≈200 wpm) for markdown text. */
+function noteStats(markdown: string): { words: number; minutes: number } {
+  const plain = markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[#>*_~|-]/g, ' ')
+  const words = plain.split(/\s+/).filter(Boolean).length
+  return { words, minutes: Math.max(1, Math.round(words / 200)) }
+}
+
 /** Markdown renderers that derive heading ids from heading text — stateless,
  *  so ids survive re-renders (scroll-spy, view toggles) without drift.
  *  Task checkboxes render UNCONTROLLED (defaultChecked) so React never
@@ -520,10 +532,12 @@ export function LectureDetailView({
                       Source
                     </button>
                   </div>
-                  <span className="caption text-muted">
-                    {toc.length > 0
-                      ? `${toc.length} sections · ${lecture.markdown.split('\n').length} lines`
-                      : `${lecture.markdown.split('\n').length} lines`}
+                  <span className="caption text-muted num">
+                    {(() => {
+                      const { words, minutes } = noteStats(lecture.markdown)
+                      const sections = toc.length > 0 ? `${toc.length} sections · ` : ''
+                      return `${sections}${words.toLocaleString('en-US')} words · ${minutes} min read`
+                    })()}
                   </span>
                 </div>
 
@@ -626,7 +640,11 @@ export function LectureDetailView({
               <div className="lecture-meta-row">
                 <span className="lecture-meta-label">Audio</span>
                 <span className="lecture-meta-value">
-                  {lecture.hasAudio ? 'Captured' : 'Timer session'}
+                  {lecture.hasTranscript
+                    ? 'AI transcribed'
+                    : lecture.hasAudio
+                      ? 'Captured'
+                      : 'Timer session'}
                 </span>
               </div>
 

@@ -66,9 +66,31 @@ export function computeProgress(lecture: LectureRecord): LectureProgress {
   return { status: 'PROCESSING', progressPercent: 96, substage: 'Writing summary' }
 }
 
-/** Applies time-based transitions and persists them. Returns the fresh lecture. */
-export async function syncLectureState(lecture: LectureRecord, subjectName = 'the course') {
+/** Applies time-based transitions and persists them. Returns the fresh lecture.
+ *  Only drives lectures on the SIMULATED timer pipeline — real AI-pipeline
+ *  lectures (pipelineStage set) are owned by asr-pipeline.ts. */
+export async function syncLectureState(
+  lecture: LectureRecord & { pipelineStage?: string | null },
+  subjectName = 'the course'
+) {
   if (lecture.status !== 'PROCESSING') return lecture
+  // Real pipeline in flight — do not let the timer complete/fail it…
+  if (lecture.pipelineStage) {
+    // …unless it is stale (e.g. the server died mid-run): time out honestly
+    const startedAt = lecture.processingStartedAt?.getTime() ?? 0
+    if (startedAt && Date.now() - startedAt > 8 * 60 * 1000) {
+      return db.lecture.update({
+        where: { id: lecture.id },
+        data: {
+          status: 'FAILED',
+          pipelineStage: null,
+          errorMessage:
+            'AI transcription timed out (the processing worker was interrupted). Retry to run it again.',
+        },
+      })
+    }
+    return lecture
+  }
 
   const progress = computeProgress(lecture)
 

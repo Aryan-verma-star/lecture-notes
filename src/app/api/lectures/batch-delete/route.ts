@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { getAuthUser, unauthorized } from '@/lib/auth'
+import { deleteAudioFile } from '@/lib/asr-pipeline'
 
 /** Batch-deletes lectures owned by the authenticated user. Body: { ids: string[] } */
 export async function POST(request: Request) {
@@ -17,6 +18,12 @@ export async function POST(request: Request) {
   }
 
   // Scoped to the owning user via the subject relation
+  const owned = await db.lecture.findMany({
+    where: { id: { in: ids }, subject: { userId: user.id } },
+    select: { audioPath: true },
+  })
+  await Promise.all(owned.map((l) => deleteAudioFile(l.audioPath)))
+
   const result = await db.lecture.deleteMany({
     where: { id: { in: ids }, subject: { userId: user.id } },
   })
