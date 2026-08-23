@@ -162,7 +162,7 @@ export interface Stats {
   processing: number
   completionRate: number | null
   firstLectureAt?: string | null
-  activity?: { date: string; count: number }[]
+  activity?: { date: string; count: number; seconds: number }[]
   subjects: SubjectStat[]
   recentLectures: {
     id: string

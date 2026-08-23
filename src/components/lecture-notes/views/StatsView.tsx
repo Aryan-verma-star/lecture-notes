@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Activity, BarChart3, CheckCircle2, Clock3, Library } from 'lucide-react'
 import { api, type Stats } from '@/lib/api'
 import { navigate } from '@/lib/router'
@@ -9,48 +9,139 @@ import { Button } from '@/components/lecture-notes/Button'
 import { EmptyState } from '@/components/lecture-notes/EmptyState'
 import { StatusPill } from '@/components/lecture-notes/StatusPill'
 
-/** Pure-SVG activity chart: one bar per day for the last 28 days. */
-function ActivityChart({ activity }: { activity: { date: string; count: number }[] }) {
-  const max = Math.max(1, ...activity.map((a) => a.count))
-  const total = activity.reduce((sum, a) => sum + a.count, 0)
+type Metric = 'count' | 'minutes'
+type Grouping = 'day' | 'week'
+
+interface ActivityPoint {
+  /** ISO date of the bucket start */
+  date: string
+  count: number
+  seconds: number
+}
+
+function groupByWeek(days: ActivityPoint[]): ActivityPoint[] {
+  const weeks: ActivityPoint[] = []
+  let current: ActivityPoint | null = null
+  for (const day of days) {
+    const d = new Date(day.date + 'T00:00:00Z')
+    // Monday-start weeks
+    const dow = (d.getUTCDay() + 6) % 7
+    if (dow === 0 || !current) {
+      current = { date: day.date, count: 0, seconds: 0 }
+      weeks.push(current)
+    }
+    current.count += day.count
+    current.seconds += day.seconds
+  }
+  return weeks
+}
+
+/** Activity chart: bars per day or week, showing lecture counts or minutes. */
+function ActivityChart({ activity }: { activity: ActivityPoint[] }) {
+  const [metric, setMetric] = useState<Metric>('count')
+  const [grouping, setGrouping] = useState<Grouping>('day')
+
+  const points = useMemo(
+    () => (grouping === 'week' ? groupByWeek(activity) : activity),
+    [activity, grouping]
+  )
+
+  const value = (p: ActivityPoint) => (metric === 'count' ? p.count : p.seconds / 60)
+  const max = Math.max(1, ...points.map(value))
+  const totalCount = activity.reduce((s, a) => s + a.count, 0)
+  const totalMinutes = Math.round(activity.reduce((s, a) => s + a.seconds, 0) / 60)
+
+  const fmtValue = (v: number) =>
+    metric === 'count'
+      ? `${Math.round(v)} ${Math.round(v) === 1 ? 'lecture' : 'lectures'}`
+      : `${Math.round(v)} min recorded`
 
   return (
-    <div className="activity-card" role="img" aria-label={`Activity chart: ${total} lectures in the last 4 weeks`}>
+    <div className="activity-card">
       <div className="activity-header">
         <span className="stat-label">
           <Activity size={13} strokeWidth={1.5} />
           Last 4 weeks
         </span>
-        <span className="caption num">
-          {total} {total === 1 ? 'lecture' : 'lectures'}
-        </span>
+        <div className="activity-controls">
+          <div className="segmented segmented-sm" role="tablist" aria-label="Chart metric">
+            <button
+              role="tab"
+              aria-selected={metric === 'count'}
+              className={`segment ${metric === 'count' ? 'active' : ''}`}
+              onClick={() => setMetric('count')}
+            >
+              Lectures
+            </button>
+            <button
+              role="tab"
+              aria-selected={metric === 'minutes'}
+              className={`segment ${metric === 'minutes' ? 'active' : ''}`}
+              onClick={() => setMetric('minutes')}
+            >
+              Minutes
+            </button>
+          </div>
+          <div className="segmented segmented-sm" role="tablist" aria-label="Chart grouping">
+            <button
+              role="tab"
+              aria-selected={grouping === 'day'}
+              className={`segment ${grouping === 'day' ? 'active' : ''}`}
+              onClick={() => setGrouping('day')}
+            >
+              Daily
+            </button>
+            <button
+              role="tab"
+              aria-selected={grouping === 'week'}
+              className={`segment ${grouping === 'week' ? 'active' : ''}`}
+              onClick={() => setGrouping('week')}
+            >
+              Weekly
+            </button>
+          </div>
+        </div>
       </div>
-      <div className="activity-chart">
-        {activity.map((day) => {
-          const pct = (day.count / max) * 100
-          const d = new Date(day.date + 'T00:00:00Z')
-          const label = d.toLocaleDateString('en-US', {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-            timeZone: 'UTC',
-          })
+
+      <div
+        className={`activity-chart ${grouping === 'week' ? 'chart-weekly' : ''}`}
+        role="img"
+        aria-label={`Activity: ${totalCount} lectures, ${totalMinutes} minutes in the last 4 weeks`}
+      >
+        {points.map((point) => {
+          const v = value(point)
+          const pct = (v / max) * 100
+          const d = new Date(point.date + 'T00:00:00Z')
+          const label =
+            grouping === 'day'
+              ? d.toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                  timeZone: 'UTC',
+                })
+              : `Week of ${d.toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  timeZone: 'UTC',
+                })}`
           return (
             <div
-              key={day.date}
+              key={point.date}
               className="activity-col"
-              title={`${label} — ${day.count} ${day.count === 1 ? 'lecture' : 'lectures'}`}
+              title={`${label} — ${fmtValue(v)}`}
             >
               <div className="activity-bar-track">
                 <div
-                  className={`activity-bar ${day.count > 0 ? 'has-activity' : ''}`}
-                  style={{ height: `${day.count > 0 ? Math.max(pct, 12) : 0}%` }}
+                  className={`activity-bar ${v > 0 ? 'has-activity' : ''} ${metric === 'minutes' ? 'bar-minutes' : ''}`}
+                  style={{ height: `${v > 0 ? Math.max(pct, grouping === 'week' ? 6 : 12) : 0}%` }}
                 />
               </div>
             </div>
           )
         })}
       </div>
+
       <div className="activity-axis">
         <span className="caption text-muted">
           {new Date(activity[0]?.date + 'T00:00:00Z').toLocaleDateString('en-US', {
@@ -59,7 +150,14 @@ function ActivityChart({ activity }: { activity: { date: string; count: number }
             timeZone: 'UTC',
           })}
         </span>
-        <span className="caption text-muted">today</span>
+        <span className="caption num text-muted">
+          {metric === 'count'
+            ? `${totalCount} ${totalCount === 1 ? 'lecture' : 'lectures'}`
+            : `${totalMinutes} min total`}
+        </span>
+        <span className="caption text-muted">
+          {grouping === 'day' ? 'today' : 'this week'}
+        </span>
       </div>
     </div>
   )

@@ -1372,6 +1372,292 @@ ul, ol {
 }
 
 /* ------------------------------------------------------------
+   Activity chart controls + weekly mode
+   ------------------------------------------------------------ */
+.activity-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.segmented-sm {
+  padding: 2px;
+}
+
+.segmented-sm .segment {
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
+.activity-chart.chart-weekly {
+  gap: var(--space-2);
+}
+
+.chart-weekly .activity-col {
+  max-width: 52px;
+}
+
+.chart-weekly .activity-bar {
+  border-radius: 4px;
+}
+
+.activity-bar.bar-minutes.has-activity {
+  background: var(--wine-400);
+}
+
+.activity-col:hover .activity-bar.bar-minutes.has-activity {
+  background: var(--wine-300);
+}
+
+/* ------------------------------------------------------------
+   Reading progress bar
+   ------------------------------------------------------------ */
+.read-progress-track {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.read-progress-fill {
+  height: 100%;
+  background: var(--wine-500);
+  transition: width 0.1s linear;
+}
+
+/* ------------------------------------------------------------
+   Heading anchor links
+   ------------------------------------------------------------ */
+.markdown-content h2,
+.markdown-content h3 {
+  position: relative;
+}
+
+.heading-anchor {
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.markdown-content h2:hover .heading-anchor,
+.markdown-content h3:hover .heading-anchor,
+.heading-anchor:focus-visible,
+.heading-anchor.copied {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  color: var(--wine-200);
+  background: var(--bg-tertiary);
+}
+
+.heading-anchor.copied {
+  color: var(--success);
+}
+
+@media (max-width: 1100px) {
+  .heading-anchor {
+    left: -18px;
+  }
+}
+
+@media (max-width: 767px) {
+  .heading-anchor {
+    left: -16px;
+    width: 16px;
+  }
+}
+
+/* ------------------------------------------------------------
+   j/k cursor + hint
+   ------------------------------------------------------------ */
+.lecture-row-wrap.cursor {
+  box-shadow: inset 2px 0 0 var(--wine-500);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lecture-row-wrap.cursor .lecture-row-title {
+  color: var(--wine-200);
+}
+
+.list-kbd-hint {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: var(--space-3);
+}
+
+/* ------------------------------------------------------------
+   Print stylesheet — notes become a clean typographic document
+   ------------------------------------------------------------ */
+@media print {
+  @page {
+    margin: 18mm 16mm;
+  }
+
+  html,
+  body,
+  .app-shell,
+  .app-main,
+  .page,
+  .lecture-detail-layout {
+    background: #fff !important;
+  }
+
+  html,
+  body {
+    color: #111 !important;
+  }
+
+  /* Force every text run in the notes dark; accents re-applied below */
+  .markdown-content,
+  .markdown-content * {
+    color: #1a1a1a !important;
+  }
+
+  .sidebar,
+  .topbar,
+  .bottom-tabs,
+  .toast-stack,
+  .read-progress-track,
+  .back-link,
+  .lecture-side,
+  .notes-toolbar,
+  .record-divider,
+  .nextjs-portal {
+    display: none !important;
+  }
+
+  .app-shell {
+    display: block !important;
+  }
+
+  .app-main,
+  .page {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .page-enter {
+    animation: none !important;
+  }
+
+  .markdown-content {
+    color: #111 !important;
+    font-size: 11.5pt;
+    line-height: 1.55;
+  }
+
+  .markdown-content h1 {
+    font-size: 22pt;
+    color: #111 !important;
+    margin-top: 0 !important;
+  }
+
+  .markdown-content h2 {
+    font-size: 15pt;
+    color: #4c1d1d !important;
+    border-bottom: 0.5pt solid #ddd;
+    padding-bottom: 3pt;
+    break-after: avoid;
+  }
+
+  .markdown-content h3 {
+    font-size: 12.5pt;
+    color: #222 !important;
+    break-after: avoid;
+  }
+
+  .markdown-content p,
+  .markdown-content li {
+    color: #1a1a1a !important;
+  }
+
+  .markdown-content li.task-item:has(input:checked) span {
+    color: #666 !important;
+  }
+
+  .markdown-content blockquote {
+    border-left-color: #722f37 !important;
+    background: #f7f3f3 !important;
+    color: #333 !important;
+  }
+
+  .markdown-content blockquote p {
+    color: #333 !important;
+  }
+
+  .markdown-content code {
+    background: #f2f2f2 !important;
+    color: #5c1a1e !important;
+    padding: 1pt 3pt;
+    font-size: 9.5pt;
+  }
+
+  .markdown-content pre {
+    background: #f6f6f6 !important;
+    border-color: #ddd !important;
+    padding: 8pt !important;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .markdown-content pre code {
+    background: transparent !important;
+    color: #111 !important;
+    font-size: 9pt;
+  }
+
+  .markdown-content table {
+    font-size: 9.5pt;
+    border: 0.5pt solid #ccc;
+  }
+
+  .markdown-content th {
+    color: #333 !important;
+    border-bottom-color: #bbb !important;
+    font-size: 8.5pt;
+  }
+
+  .markdown-content td {
+    border-bottom-color: #e2e2e2 !important;
+    border-bottom-width: 0.5pt;
+  }
+
+  .markdown-content hr {
+    border-top: 0.5pt solid #ccc;
+    background: none;
+  }
+
+  .heading-anchor {
+    display: none !important;
+  }
+
+  .markdown-content tr,
+  .markdown-content img,
+  .markdown-content pre {
+    break-inside: avoid;
+  }
+}
+
+/* ------------------------------------------------------------
    Page entrance (subtle, instant-feeling)
    ------------------------------------------------------------ */
 .page-enter {

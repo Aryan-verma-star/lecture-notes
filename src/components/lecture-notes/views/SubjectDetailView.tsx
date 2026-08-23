@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, CheckSquare, Mic, Search, Square, Trash2, X } from 'lucide-react'
 import { api, type LectureStatus, type SubjectDetail } from '@/lib/api'
 import { navigate, useBack } from '@/lib/router'
@@ -73,6 +73,46 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
   }, [subject, query, statusFilter, sortKey])
 
   const hasFilters = query.trim() !== '' || statusFilter !== 'all' || sortKey !== 'newest'
+
+  /* ---------------- j/k row navigation ---------------- */
+
+  const [cursorIndex, setCursorIndex] = useState(0)
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // Keep the cursor inside bounds when the filtered list changes
+  useEffect(() => {
+    setCursorIndex((i) => Math.min(i, Math.max(0, filteredLectures.length - 1)))
+  }, [filteredLectures.length])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key !== 'j' && e.key !== 'k' && e.key !== 'Enter') return
+      if (filteredLectures.length === 0) return
+      if (selectMode) return // selection clicks handle rows in batch mode
+
+      const delta = e.key === 'j' ? 1 : e.key === 'k' ? -1 : 0
+      if (delta !== 0) {
+        e.preventDefault()
+        setCursorIndex((i) => {
+          const next = Math.min(Math.max(i + delta, 0), filteredLectures.length - 1)
+          rowRefs.current[next]?.scrollIntoView({ block: 'nearest' })
+          return next
+        })
+      } else if (e.key === 'Enter') {
+        const row = rowRefs.current[cursorIndex]
+        // Only act when the cursor row itself (not a child button) has focus context
+        if (row && document.activeElement === document.body) {
+          e.preventDefault()
+          navigate(`/lectures/${filteredLectures[cursorIndex].id}`)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [filteredLectures, cursorIndex, selectMode])
 
   function toggleSelected(id: string) {
     setSelected((prev) => {
@@ -227,6 +267,14 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
                 </Button>
               </div>
 
+              {!selectMode ? (
+                <p className="caption text-muted list-kbd-hint">
+                  <span className="kbd">J</span>
+                  <span className="kbd">K</span>
+                  move · <span className="kbd">↵</span> open
+                </p>
+              ) : null}
+
               {/* -------- Batch action bar -------- */}
               {selectMode ? (
                 <div className="batch-bar" role="toolbar" aria-label="Batch actions">
@@ -278,11 +326,16 @@ export function SubjectDetailView({ subjectId }: { subjectId: string }) {
                 </div>
               ) : (
                 <div className="lecture-list" role="list">
-                  {filteredLectures.map((lecture) => (
+                  {filteredLectures.map((lecture, index) => (
                     <div
                       key={lecture.id}
                       role="listitem"
-                      className={`lecture-row-wrap ${selected.has(lecture.id) ? 'selected' : ''}`}
+                      ref={(el) => {
+                        rowRefs.current[index] = el
+                      }}
+                      className={`lecture-row-wrap ${selected.has(lecture.id) ? 'selected' : ''} ${
+                        !selectMode && index === cursorIndex ? 'cursor' : ''
+                      }`}
                     >
                       {selectMode ? (
                         <button

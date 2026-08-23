@@ -11,6 +11,7 @@ import {
   Download,
   ExternalLink,
   FileText,
+  Link2,
   ListTree,
   Pencil,
   RefreshCw,
@@ -30,6 +31,41 @@ import { StatusPill } from '@/components/lecture-notes/StatusPill'
 import { useToast } from '@/context/ToastContext'
 
 type ViewMode = 'preview' | 'source'
+
+/** Copies an anchor URL like #/lectures/<id>/heading-slug to the clipboard. */
+function useHeadingAnchors(lectureId: string | null, enabled: boolean) {
+  useEffect(() => {
+    if (!enabled || !lectureId) return
+    const container = document.querySelector('.markdown-content')
+    if (!container) return
+
+    const headings = container.querySelectorAll('h2[id], h3[id]')
+    const buttons: HTMLElement[] = []
+
+    headings.forEach((h) => {
+      const heading = h as HTMLElement
+      const btn = document.createElement('button')
+      btn.className = 'heading-anchor'
+      btn.setAttribute('aria-label', `Copy link to ${heading.textContent}`)
+      btn.title = 'Copy link to section'
+      btn.innerHTML =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const url = `${window.location.origin}/#/lectures/${lectureId}/${heading.id}`
+        void navigator.clipboard?.writeText(url).catch(() => {})
+        btn.classList.add('copied')
+        window.setTimeout(() => btn.classList.remove('copied'), 1200)
+      })
+      heading.appendChild(btn)
+      buttons.push(btn)
+    })
+
+    return () => {
+      buttons.forEach((b) => b.remove())
+    }
+  }, [lectureId, enabled])
+}
 
 /** Recursively extracts plain text from React children (strings, arrays, elements). */
 function nodeText(node: React.ReactNode): string {
@@ -63,7 +99,13 @@ function useMarkdownComponents(): Components {
   )
 }
 
-export function LectureDetailView({ lectureId }: { lectureId: string }) {
+export function LectureDetailView({
+  lectureId,
+  headingSlug,
+}: {
+  lectureId: string
+  headingSlug?: string | null
+}) {
   const { toast } = useToast()
   const [lecture, setLecture] = useState<LectureDetail | null>(null)
   const [progress, setProgress] = useState<LectureProgress | null>(null)
@@ -127,15 +169,51 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
     }
   }, [lecture?.status, lectureId, load])
 
+  const markdownRef = useRef<HTMLDivElement>(null)
+
   const toc = useMemo(
     () => (lecture?.markdown ? extractToc(lecture.markdown) : []),
     [lecture?.markdown]
   )
   const markdownComponents = useMarkdownComponents()
 
+  // Hover anchor links on note headings (preview mode, completed notes only)
+  useHeadingAnchors(
+    lecture?.status === 'COMPLETED' ? lectureId : null,
+    viewMode === 'preview' && !!lecture?.markdown
+  )
+
+  /* ---------------- Reading progress ---------------- */
+  const [readProgress, setReadProgress] = useState(0)
+
+  useEffect(() => {
+    if (viewMode !== 'preview' || !lecture?.markdown) {
+      setReadProgress(0)
+      return
+    }
+    const onScroll = () => {
+      const el = markdownRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const total = rect.height - window.innerHeight * 0.6
+      if (total <= 0) {
+        setReadProgress(100)
+        return
+      }
+      const scrolled = Math.min(Math.max(-rect.top + window.innerHeight * 0.3, 0), total)
+      setReadProgress(Math.round((scrolled / total) * 100))
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [viewMode, lecture?.markdown])
+
   /* ---------------- Interactive task checkboxes ---------------- */
 
-  const markdownRef = useRef<HTMLDivElement>(null)
   const [checks, setChecks] = useState<Record<string, boolean>>({})
   const [checksInitFor, setChecksInitFor] = useState<string | null>(null)
 
@@ -180,6 +258,17 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
       })
     }
   }
+
+  // Deep-link: scroll to the referenced heading once markdown is rendered
+  useEffect(() => {
+    if (!headingSlug || !lecture?.markdown || viewMode !== 'preview') return
+    const el = document.getElementById(headingSlug)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setActiveHeading(headingSlug)
+    }
+     
+  }, [headingSlug, lecture?.markdown, viewMode])
 
   // Scroll-spy: highlight the TOC entry for the topmost visible heading
   useEffect(() => {
@@ -321,6 +410,19 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
 
   return (
     <>
+      {/* Reading progress — fixed hairline at the very top of the viewport */}
+      {isDone && lecture?.markdown && viewMode === 'preview' ? (
+        <div
+          className="read-progress-track"
+          role="progressbar"
+          aria-label="Reading progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={readProgress}
+        >
+          <div className="read-progress-fill" style={{ width: `${readProgress}%` }} />
+        </div>
+      ) : null}
       <button className="back-link" onClick={back} style={{ marginBottom: 24 }}>
         <ArrowLeft size={15} strokeWidth={1.5} />
         {lecture?.subjectName ?? 'Back'}

@@ -66,7 +66,11 @@ function AppRoutes() {
       break
     case 'lectures':
       wide = true
-      content = arg ? <LectureDetailView key={arg} lectureId={arg} /> : <SubjectsView />
+      content = arg ? (
+        <LectureDetailView key={arg} lectureId={arg} headingSlug={route.segments[2] ?? null} />
+      ) : (
+        <SubjectsView />
+      )
       break
     case 'stats':
       wide = true

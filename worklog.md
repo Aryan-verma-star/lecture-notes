@@ -151,9 +151,45 @@ Unresolved issues / risks:
 - Dev server: running detached; restart command in worklog if it dies.
 
 Next-phase priorities (for the next webDevReview):
-1. Stats: duration-weighted activity chart (minutes/day) + weekly grouping toggle.
-2. Print stylesheet for notes (print-optimized, hide chrome).
-3. Subject detail: retry/regenerate from row context; keyboard navigation in lecture lists (j/k).
-4. Notes: anchor links on headings (hover ¶ link); reading progress indicator.
+1. ~~Stats: duration-weighted activity chart (minutes/day) + weekly grouping toggle~~ ✅ done in round 5
+2. ~~Print stylesheet for notes~~ ✅ done in round 5 (verified via PDF render)
+3. ~~Keyboard navigation in lecture lists (j/k)~~ ✅ done in round 5
+4. ~~Notes: anchor links on headings (hover ¶ link); reading progress indicator~~ ✅ done in round 5
 5. Empty-state illustrations via subtle SVG patterns (stay within design language).
 6. Real ASR integration via z-ai-web-dev-sdk in the audio route (optional big win).
+
+---
+Task ID: 5-a
+Agent: webDevReview (recurring cron)
+Task: Round 5 — QA regression pass + implement: duration-weighted stats chart with metric/grouping toggles, print stylesheet, heading anchor links with deep-link scroll, reading progress bar, j/k keyboard navigation in lecture lists.
+
+Work Log:
+- QA pass: all views regression-clean (subjects/palette/stats/notes).
+- Backend: `/api/stats` activity entries now `{ date, count, seconds }` — daily recorded-seconds aggregated alongside counts; client picks the metric.
+- StatsView ActivityChart rebuilt: two segmented controls (Lectures/Minutes × Daily/Weekly); `groupByWeek` (Monday-start buckets); minutes bars use wine-400 variant; weekly mode widens bars; axis shows total in active metric; tooltips localized ("Week of Aug 18 — 3 lectures" / "N min recorded").
+- LectureDetailView additions:
+  - Reading progress: fixed 2px wine bar at viewport top, scroll listener computes % through the markdown container (passive listeners + resize handling); only in preview mode on completed notes.
+  - Heading anchor links: `useHeadingAnchors` injects link buttons into rendered h2/h3 (DOM-injected, cleaned up on unmount); click copies `origin/#/lectures/<id>/<slug>` to clipboard with copied-state flash; hover-revealed (always visible on focus/print-hidden).
+  - Deep links: App passes `route.segments[2]` as headingSlug → LectureDetailView smooth-scrolls + activates TOC entry once markdown renders. URL `#/lectures/<id>/<heading-slug>` verified working end-to-end.
+- SubjectDetailView: j/k keyboard navigation — cursor row with wine inset border + title tint, `scrollIntoView({block:'nearest'})` on move, Enter opens cursor row (only when body focus, so buttons/inputs unaffected), clamped at bounds, disabled in select mode and while typing in filter inputs; "J K move · ↵ open" kbd hint under the toolbar.
+- Print stylesheet (300+ lines): @page margins; hides sidebar/topbar/tabs/toasts/progress/back-link/notes-toolbar/TOC/anchors; white page, dark typographic palette; h2 keeps dark-wine tone with hairline underline; blockquote light-gray with wine border; code/pre light-gray surfaces; tables bordered 0.5pt; break-inside/after rules to avoid orphan headings.
+- BUG FOUND & FIXED (print): first PDF render came out 85-90% dark. Diagnosis via pdftoppm + VLM: @media print WAS applying (sidebar/buttons hidden) but `.app-shell` kept its dark background (only html/body were reset — app-shell paints over them). Fixed by resetting backgrounds on `.app-shell/.app-main/.page/.lecture-detail-layout` + catch-all `.markdown-content * { color: #1a1a1a !important }` (accent rules win via higher specificity). Regenerated PDF verified: white page, dark readable text, no chrome, light-gray boxes.
+- Also fixed en route: TDZ issue (useHeadingAnchors referencing `isDone` before declaration → moved hook below state, used inline status check); removed unused eslint-disable via --fix.
+- Deviation note: `agent-browser set media print` does not actually emulate print media (verified by computed-style probe); real print verification done through `agent-browser pdf` + pdftoppm + VLM.
+
+Stage Summary:
+- E2E verified: chart controls (28 daily bars → Weekly → 4 bars with "this week" axis; Minutes → "1 min total" — correct, since round-4 batch delete removed the 52m lecture); reading progress 1%→100%→1% on scroll; 8 anchor buttons injected, click copies correct URL (intercepted writeText verified: `…/#/lectures/<id>/session-summary`); deep link `#/lectures/<id>/terminology-introduced` scrolls heading to top:142 + highlights TOC; j/k moves cursor (j→j→k across 3 rows), k clamps at 0, Enter opens cursor lecture; print PDF white/clean/no-chrome. Lint: clean (0/0). dev.log: no errors.
+
+Unresolved issues / risks:
+- `agent-browser set media print` is a no-op — future print QA must use `agent-browser pdf` + pdftoppm + VLM pipeline.
+- One VLM call misfired this round (returned generated HTML instead of a review); functional E2E assertions were used as the source of truth instead.
+- Print heading color #4c1d1d reads near-black at low DPI — intended (print-appropriate).
+- j/k active only outside select mode / filter inputs (by design).
+
+Next-phase priorities (for the next webDevReview):
+1. Real ASR integration via z-ai-web-dev-sdk in the audio upload route — the last major simulated subsystem (big win; needs z-ai CLI/server-side SDK check first).
+2. Subjects grid: sort/search controls for many subjects; card count badge refinement.
+3. Settings: appearance section (font size toggle, reduced-motion respect is already global); data export (all notes as .md zip via client-side download).
+4. Record: post-stop title edit before upload (naming after stop).
+5. Empty-state SVG illustrations (subtle, within design language).
+6. Notes: word count / estimated reading time in toolbar caption.
