@@ -227,9 +227,52 @@ Unresolved issues / risks:
 - Sequential chunk transcription (no parallelism) — fine at current scale.
 
 Next-phase priorities (for the next webDevReview):
-1. Settings → Data & appearance: export-all-notes (.md bundle, client-side zip), font-size preference (persisted).
-2. Record: post-stop title edit before upload; upload progress indicator for large files.
-3. Transcript viewer: show the raw ASR transcript (collapsible section under notes) for AI-transcribed lectures.
-4. Empty-state SVG illustrations (subtle, within design language).
-5. Notes: flashcard-style review mode generated from Study Checklist items.
-6. Optional: parallel chunk transcription + per-chunk progress in status payload.
+1. ~~Settings → Data export (all notes as .md)~~ ✅ done in round 7
+2. ~~Transcript viewer (collapsible, AI-transcribed lectures)~~ ✅ done in round 7
+3. ~~Notes: flashcard-style review mode from Study Checklist~~ ✅ done in round 7
+4. Record: post-stop title edit before upload; upload progress indicator for large files.
+5. Empty-state SVG illustrations (subtle, within design language).
+6. Settings appearance: font-size preference (persisted).
+7. Optional: parallel chunk transcription + per-chunk progress in status payload.
+
+---
+Task ID: 7-a
+Agent: webDevReview (recurring cron)
+Task: Round 7 — QA pass + study-feature round: flashcard review mode (flip cards from notes), raw-transcript viewer for AI-transcribed lectures, and export-all-notes (.md bundle) in Settings.
+
+Work Log:
+- QA pass: 3 subjects, AI lecture intact, no regressions.
+- Backend:
+  - Lecture GET now returns the full `transcript` string (alongside hasTranscript).
+  - NEW `GET /api/export` — full data export: all subjects (name-asc) with lectures (title/status/date/duration/markdown/transcript) + summary counts.
+- NEW `src/lib/flashcards.ts` — client-side card generation from markdown:
+  - Concept cards: bold list terms ("- **Term**: definition") → front "Define: Term" / back = definition.
+  - Checklist cards: GFM "- [ ]" items → front = task; back = best-matching note paragraph via stopword-filtered keyword overlap (length-normalized).
+  - Fallback section cards ("Summarize: <h2>") when notes have neither; cap 24 cards.
+- NEW `FlashcardReview.tsx` — fullscreen study session:
+  - 3D flip card (rotateY, backface-visibility), origin badge (Key concept / Study checklist / Section).
+  - Again / Got it flow with known-set tracking; per-card progress dots (wine current, green known); session-complete screen ("You marked X of N cards as known") with Study again / Done.
+  - Keyboard: space/enter flip, ←/→ navigate, 1 Again, 2 Got it, Esc close. Modal is mount/unmounted fresh per session (no reset effects — satisfies react-hooks/immutability).
+  - "Review · N" button in the notes toolbar (visible when cards exist).
+- LectureDetail: "Raw transcript" collapsible section below notes (wine icon, word count + speech-to-text caption, rotating chevron, mono body with max-height scroll) — shows the genuine ASR output for AI-transcribed lectures.
+- Settings: new "Data" section — "Export all notes (.md)" builds a clean combined Markdown bundle client-side (subject H1s, lecture H2s with date/duration/status blockquotes, notes demoted to H3 for hierarchy) and downloads `lecture-notes-export-YYYY-MM-DD.md`; toast confirms.
+- CSS (+~280 lines): flash overlay/shell/card faces with 3D flip, origin badges, controls (nav arrows, mark buttons with kbd hints), progress dots, done screen with success ring; transcript section/toggle/body; mono-sm utility.
+- BUGS FOUND & FIXED:
+  1. FlashcardReview initial version had a reset-on-open effect (react-hooks/set-state-in-effect error) → restructured to conditional mount (parent renders only when open, state starts clean) and converted advance/markKnown to proper useCallback chain.
+  2. Checklist cards matched their answers back to the Study Checklist section itself (verbatim word overlap → echo-the-question bug). Fixed by excluding task-list/checklist blocks from match candidates — now "State Newton's First Law" matches the actual Key Concepts paragraph.
+
+Stage Summary:
+- E2E verified: Review · 8 button on the AI Physics lecture (3 concept + 5 checklist cards); card 1 "Define: Newton's First Law" → flip → correct definition → Got it → 2/8 with 1 green dot; space/arrow keyboard controls; fast-forward → "Session complete — You marked 1 of 8 cards as known. 7 to review again."; Study again restarts; Esc closes. Checklist card now backs with real Key Concepts content. Transcript toggle: "76 words · speech-to-text" → opens showing the genuine ASR text ("Welcome to Physics Two Hundred and One…"). Export: intercepted download shows `lecture-notes-export-2026-08-23.md` (9,744 bytes) + toast "Exported 5 notes as Markdown". Mobile 390px: flashcard shell fits, controls usable. VLM: "highly polished with a sophisticated dark theme." Lint clean (0/0). dev.log: no errors.
+
+Unresolved issues / risks:
+- Flashcard deck generation is heuristic (bold terms + checklist); LLM-generated decks would be richer (future enhancement via a notes→deck prompt).
+- Export is a single combined .md (no zip — deliberately dependency-free).
+- agent-browser session state file occasionally needs reloading after daemon restarts (sessionState loss is cosmetic).
+
+Next-phase priorities (for the next webDevReview):
+1. Record: post-stop title edit before upload; upload progress indicator (XHR progress) for large files.
+2. LLM-generated flashcard decks (notes → deck endpoint via z-ai chat) as an upgrade over heuristic cards.
+3. Empty-state SVG illustrations (subtle, within design language).
+4. Settings appearance: font-size preference (persisted).
+5. Stats: streak tracking (days in a row with recordings).
+6. Optional: parallel chunk transcription + per-chunk progress.

@@ -7,10 +7,12 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  ChevronDown,
   Copy,
   Download,
   ExternalLink,
   FileText,
+  Layers,
   Link2,
   ListTree,
   Pencil,
@@ -28,6 +30,8 @@ import { formatDate, formatDuration } from '@/lib/format'
 import { extractToc, slugify } from '@/lib/toc'
 import { Button } from '@/components/lecture-notes/Button'
 import { StatusPill } from '@/components/lecture-notes/StatusPill'
+import { FlashcardReview } from '@/components/lecture-notes/FlashcardReview'
+import { buildFlashcards } from '@/lib/flashcards'
 import { useToast } from '@/context/ToastContext'
 
 type ViewMode = 'preview' | 'source'
@@ -133,6 +137,8 @@ export function LectureDetailView({
   const [regenerating, setRegenerating] = useState(false)
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [activeHeading, setActiveHeading] = useState<string | null>(null)
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [transcriptOpen, setTranscriptOpen] = useState(false)
   const back = useBack('/subjects')
 
   const load = useCallback(() => {
@@ -188,6 +194,10 @@ export function LectureDetailView({
     [lecture?.markdown]
   )
   const markdownComponents = useMarkdownComponents()
+  const flashcards = useMemo(
+    () => (lecture?.markdown ? buildFlashcards(lecture.markdown) : []),
+    [lecture?.markdown]
+  )
 
   // Hover anchor links on note headings (preview mode, completed notes only)
   useHeadingAnchors(
@@ -532,13 +542,24 @@ export function LectureDetailView({
                       Source
                     </button>
                   </div>
-                  <span className="caption text-muted num">
-                    {(() => {
-                      const { words, minutes } = noteStats(lecture.markdown)
-                      const sections = toc.length > 0 ? `${toc.length} sections · ` : ''
-                      return `${sections}${words.toLocaleString('en-US')} words · ${minutes} min read`
-                    })()}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className="caption text-muted num">
+                      {(() => {
+                        const { words, minutes } = noteStats(lecture.markdown)
+                        const sections = toc.length > 0 ? `${toc.length} sections · ` : ''
+                        return `${sections}${words.toLocaleString('en-US')} words · ${minutes} min read`
+                      })()}
+                    </span>
+                    {flashcards.length > 0 ? (
+                      <Button
+                        size="sm"
+                        onClick={() => setReviewOpen(true)}
+                        icon={<Layers size={13} strokeWidth={1.5} />}
+                      >
+                        Review · {flashcards.length}
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
 
                 {viewMode === 'preview' ? (
@@ -555,6 +576,33 @@ export function LectureDetailView({
                     {lecture.markdown}
                   </pre>
                 )}
+
+                {/* Raw AI transcript */}
+                {lecture.transcript ? (
+                  <section className="transcript-section" aria-label="Raw transcript">
+                    <button
+                      className="transcript-toggle"
+                      onClick={() => setTranscriptOpen((o) => !o)}
+                      aria-expanded={transcriptOpen}
+                    >
+                      <FileText size={13} strokeWidth={1.5} />
+                      <span className="subheading">Raw transcript</span>
+                      <span className="caption text-muted">
+                        {lecture.transcript.split(/\s+/).length} words · speech-to-text
+                      </span>
+                      <ChevronDown
+                        size={14}
+                        strokeWidth={1.5}
+                        className={`transcript-chevron ${transcriptOpen ? 'open' : ''}`}
+                      />
+                    </button>
+                    {transcriptOpen ? (
+                      <p className="transcript-body body text-secondary mono-sm">
+                        {lecture.transcript}
+                      </p>
+                    ) : null}
+                  </section>
+                ) : null}
               </>
             ) : (
               <div className="empty-state">
@@ -778,6 +826,14 @@ export function LectureDetailView({
           </aside>
         </div>
       )}
+
+      {reviewOpen ? (
+        <FlashcardReview
+          onClose={() => setReviewOpen(false)}
+          title={lecture?.title ?? 'Review'}
+          cards={flashcards}
+        />
+      ) : null}
     </>
   )
 }

@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Check, Github, Link2, LogOut, RefreshCw, Unlink, X } from 'lucide-react'
-import { api, type GithubStatus } from '@/lib/api'
+import { Check, Download, Github, Link2, LogOut, RefreshCw, Unlink, X } from 'lucide-react'
+import { api, type ExportBundle, type GithubStatus } from '@/lib/api'
 import { Button } from '@/components/lecture-notes/Button'
 import { Field, Input } from '@/components/lecture-notes/Input'
 import { Modal } from '@/components/lecture-notes/Modal'
+import { formatDate, formatDuration } from '@/lib/format'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 
@@ -23,6 +24,7 @@ export function SettingsView() {
   const [formError, setFormError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const loadGithub = () => {
     api.get<GithubStatus>('/api/github/status').then(setGithub).catch(() => setGithub(null))
@@ -35,6 +37,57 @@ export function SettingsView() {
       .then(() => setBackend('online'))
       .catch(() => setBackend('offline'))
   }, [])
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const bundle = await api.get<ExportBundle>('/api/export')
+      const lines: string[] = [
+        `# Lecture Notes — Export`,
+        '',
+        `> ${bundle.totalSubjects} subjects · ${bundle.totalLectures} lectures · ${bundle.lecturesWithNotes} with notes`,
+        `> Exported ${new Date(bundle.exportedAt).toLocaleString('en-US')} · ${bundle.email}`,
+        '',
+        '---',
+        '',
+      ]
+      for (const subject of bundle.subjects) {
+        lines.push(`# ${subject.name}`, '')
+        if (subject.description) lines.push(`*${subject.description}*`, '')
+        if (subject.lectures.length === 0) {
+          lines.push('_No lectures._', '')
+        }
+        for (const lecture of subject.lectures) {
+          lines.push('---', '', `## ${lecture.title}`, '')
+          lines.push(
+            `> ${formatDate(lecture.recordedAt)} · ${formatDuration(lecture.durationSeconds)} · ${lecture.status}`,
+            ''
+          )
+          if (lecture.markdown) {
+            // demote the note's own H1 to H3 to keep the bundle hierarchy clean
+            lines.push(lecture.markdown.replace(/^# /gm, '### '), '')
+          } else {
+            lines.push('_No generated notes._', '')
+          }
+        }
+        lines.push('---', '')
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `lecture-notes-export-${new Date().toISOString().slice(0, 10)}.md`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      toast(`Exported ${bundle.lecturesWithNotes} notes as Markdown`, 'success')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Export failed', 'error')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   async function handleConnect() {
     setFormError(null)
@@ -182,6 +235,32 @@ export function SettingsView() {
                   </>
                 )}
               </span>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------ Data ------------ */}
+        <section className="settings-section" aria-labelledby="data-heading">
+          <h2 className="heading" id="data-heading">
+            Data
+          </h2>
+
+          <div className="settings-card">
+            <div>
+              <p className="body" style={{ fontSize: 13 }}>
+                Download every subject and lecture note as a single Markdown document — perfect for
+                archiving, printing, or importing into another tool.
+              </p>
+            </div>
+            <div className="settings-actions">
+              <Button
+                variant="secondary"
+                onClick={handleExport}
+                loading={exporting}
+                icon={<Download size={14} strokeWidth={1.5} />}
+              >
+                Export all notes (.md)
+              </Button>
             </div>
           </div>
         </section>

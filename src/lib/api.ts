@@ -109,7 +109,30 @@ export interface Lecture {
 export interface LectureDetail extends Lecture {
   subjectName: string
   hasTranscript?: boolean
+  transcript?: string | null
   taskChecks?: Record<string, boolean> | null
+}
+
+export interface ExportBundle {
+  exportedAt: string
+  email: string
+  totalSubjects: number
+  totalLectures: number
+  lecturesWithNotes: number
+  subjects: {
+    id: string
+    name: string
+    description?: string | null
+    lectures: {
+      id: string
+      title: string
+      status: LectureStatus
+      recordedAt: string
+      durationSeconds?: number | null
+      markdown?: string | null
+      transcript?: string | null
+    }[]
+  }[]
 }
 
 export interface SubjectDetail {

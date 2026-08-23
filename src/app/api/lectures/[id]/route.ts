@@ -27,6 +27,7 @@ export async function GET(request: Request, { params }: Params) {
     durationSeconds: synced.durationSeconds,
     markdown: synced.markdown,
     hasTranscript: Boolean(synced.transcript),
+    transcript: synced.transcript,
     taskChecks: synced.taskChecks ? JSON.parse(synced.taskChecks) : null,
     errorMessage: synced.errorMessage,
     hasAudio: synced.hasAudio,
