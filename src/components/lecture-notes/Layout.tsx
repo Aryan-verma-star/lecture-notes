@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { BarChart3, BookOpen, Mic, Search, Settings } from 'lucide-react'
+import { BookOpen, Mic, Search, Settings } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { navigate } from '@/lib/router'
@@ -9,7 +9,6 @@ import { navigate } from '@/lib/router'
 const TABS = [
   { path: '/subjects', label: 'Subjects', icon: BookOpen },
   { path: '/record', label: 'Record', icon: Mic },
-  { path: '/stats', label: 'Stats', icon: BarChart3 },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]
 

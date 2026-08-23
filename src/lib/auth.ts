@@ -65,9 +65,6 @@ export async function getAuthUser(request: Request) {
     select: {
       id: true,
       email: true,
-      githubConnected: true,
-      githubUsername: true,
-      githubRepoName: true,
     },
   })
 }

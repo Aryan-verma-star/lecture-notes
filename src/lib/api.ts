@@ -33,7 +33,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const res = await fetch(path, { ...init, headers })
 
-  if (res.status === 401 && typeof window !== 'undefined') {
+  // 401 with an attached token = expired session → clear + reload.
+  // 401 without a token (e.g. failed login) is a normal auth error.
+  if (res.status === 401 && token && typeof window !== 'undefined') {
     setToken(null)
     window.location.reload()
     throw new ApiError('Session expired. Please sign in again.', 401)
@@ -150,12 +152,6 @@ export interface LectureProgress {
   errorMessage?: string | null
 }
 
-export interface GithubStatus {
-  connected: boolean
-  username?: string | null
-  repoName?: string | null
-}
-
 export interface SearchResults {
   subjects: { id: string; name: string; lectureCount: number }[]
   lectures: {
@@ -165,36 +161,5 @@ export interface SearchResults {
     subjectName: string
     status: LectureStatus
     recordedAt: string
-  }[]
-}
-
-export interface SubjectStat {
-  id: string
-  name: string
-  lectureCount: number
-  durationSeconds: number
-  completed: number
-  lastLectureAt?: string | null
-}
-
-export interface Stats {
-  totalSubjects: number
-  totalLectures: number
-  totalDurationSeconds: number
-  completed: number
-  failed: number
-  processing: number
-  completionRate: number | null
-  firstLectureAt?: string | null
-  activity?: { date: string; count: number; seconds: number }[]
-  subjects: SubjectStat[]
-  recentLectures: {
-    id: string
-    title: string
-    subjectId: string
-    subjectName: string
-    status: LectureStatus
-    recordedAt: string
-    durationSeconds?: number | null
   }[]
 }

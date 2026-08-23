@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { BarChart3, BookOpen, CornerDownLeft, Mic, Plus, Search, Settings } from 'lucide-react'
+import { BookOpen, CornerDownLeft, Mic, Plus, Search, Settings } from 'lucide-react'
 import { api, type SearchResults } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { relativeTime } from '@/lib/format'
@@ -144,14 +144,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         icon: <BookOpen size={15} strokeWidth={1.5} />,
         hint: 'G S',
         run: () => navigate('/subjects'),
-      },
-      {
-        kind: 'action',
-        id: 'a-stats',
-        label: 'Go to statistics',
-        icon: <BarChart3 size={15} strokeWidth={1.5} />,
-        hint: 'G T',
-        run: () => navigate('/stats'),
       },
       {
         kind: 'action',

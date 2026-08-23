@@ -1,32 +1,55 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { AudioLines } from 'lucide-react'
+import { AudioLines, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/lecture-notes/Button'
 import { Field, Input } from '@/components/lecture-notes/Input'
 import { useAuth } from '@/context/AuthContext'
 import { navigate } from '@/lib/router'
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export function LoginView() {
   const { login } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+
+  function validate(): boolean {
+    let ok = true
+    if (!email.trim()) {
+      setEmailError('Enter your email address.')
+      ok = false
+    } else if (!EMAIL_RE.test(email.trim())) {
+      setEmailError('Enter a valid email address.')
+      ok = false
+    } else {
+      setEmailError(null)
+    }
+    if (!password) {
+      setPasswordError('Enter your password.')
+      ok = false
+    } else {
+      setPasswordError(null)
+    }
+    return ok
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    setError(null)
-    if (!email.trim() || !password) {
-      setError('Enter your email and password.')
-      return
-    }
+    setFormError(null)
+    if (!validate()) return
+
     setLoading(true)
     try {
       await login(email.trim(), password)
       navigate('/subjects')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed.')
+      setFormError(err instanceof Error ? err.message : 'Login failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -45,44 +68,58 @@ export function LoginView() {
       </div>
 
       <form className="auth-card" onSubmit={handleSubmit} noValidate>
-        <Field label="Email">
+        <Field label="Email" error={emailError}>
           <Input
             type="email"
             placeholder="you@university.edu"
             autoComplete="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            invalid={!!error}
+            onChange={(e) => {
+              setEmail(e.target.value)
+              if (emailError) setEmailError(null)
+            }}
+            invalid={!!emailError}
             autoFocus
+            disabled={loading}
           />
         </Field>
 
-        <Field label="Password" error={error}>
-          <Input
-            type="password"
-            placeholder="••••••••"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            invalid={!!error}
-          />
+        <Field label="Password" error={passwordError || formError}>
+          <div className="password-field">
+            <Input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                if (passwordError) setPasswordError(null)
+              }}
+              invalid={!!passwordError || !!formError}
+              disabled={loading}
+              className="password-input"
+            />
+            <button
+              type="button"
+              className="password-toggle"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              title={showPassword ? 'Hide password' : 'Show password'}
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <EyeOff size={15} strokeWidth={1.5} />
+              ) : (
+                <Eye size={15} strokeWidth={1.5} />
+              )}
+            </button>
+          </div>
         </Field>
 
-        <Button type="submit" block loading={loading}>
+        <Button type="submit" block loading={loading} disabled={!email.trim() || !password}>
           Log In
         </Button>
       </form>
-
-      <p className="auth-footer caption">
-        No account?{' '}
-        <a
-          href="#/register"
-          className="link-wine"
-          onClick={() => navigate('/register')}
-        >
-          Register
-        </a>
-      </p>
     </div>
   )
 }

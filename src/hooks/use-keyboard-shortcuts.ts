@@ -24,9 +24,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  *   ⌘K / Ctrl+K / "/"  → command palette
  *   g then s           → subjects
  *   g then r           → record
- *   g then t           → statistics
  *   g then g           → settings
- *   ?                  → shortcut help (palette footer documents these)
  *
  * All shortcuts are suppressed while typing in a field.
  */
@@ -75,9 +73,6 @@ export function useKeyboardShortcuts({ enabled, openPalette }: ShortcutsOptions)
         } else if (key === 'r') {
           e.preventDefault()
           navigate('/record')
-        } else if (key === 't') {
-          e.preventDefault()
-          navigate('/stats')
         } else if (key === 'g') {
           e.preventDefault()
           navigate('/settings')

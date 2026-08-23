@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Copy,
   Download,
-  ExternalLink,
   FileText,
   Layers,
   Link2,
@@ -21,7 +20,6 @@ import {
 } from 'lucide-react'
 import {
   api,
-  type GithubStatus,
   type LectureDetail,
   type LectureProgress,
 } from '@/lib/api'
@@ -126,7 +124,6 @@ export function LectureDetailView({
   const [lecture, setLecture] = useState<LectureDetail | null>(null)
   const [progress, setProgress] = useState<LectureProgress | null>(null)
   const [notFound, setNotFound] = useState(false)
-  const [github, setGithub] = useState<GithubStatus | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -158,7 +155,6 @@ export function LectureDetailView({
 
   useEffect(() => {
     load()
-    api.get<GithubStatus>('/api/github/status').then(setGithub).catch(() => {})
   }, [load])
 
   // Live progress polling while processing
@@ -729,28 +725,6 @@ export function LectureDetailView({
                   </Button>
                 </div>
               ) : null}
-
-              {github?.connected && github.username && github.repoName ? (
-                <a
-                  className="btn-secondary btn-block"
-                  href={`https://github.com/${github.username}/${github.repoName}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ textDecoration: 'none' }}
-                >
-                  <ExternalLink size={14} strokeWidth={1.5} />
-                  View on GitHub
-                </a>
-              ) : (
-                <Button
-                  variant="secondary"
-                  block
-                  onClick={() => navigate('/settings')}
-                  icon={<ExternalLink size={14} strokeWidth={1.5} />}
-                >
-                  Connect GitHub
-                </Button>
-              )}
 
               {canRegenerate ? (
                 <Button

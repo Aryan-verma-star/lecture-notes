@@ -1,12 +1,11 @@
 'use client'
 
-import { AudioLines, BookOpen, BarChart3, LogOut, Mic, Search, Settings } from 'lucide-react'
+import { AudioLines, BookOpen, LogOut, Mic, Search, Settings } from 'lucide-react'
 import { navigate } from '@/lib/router'
 
 const NAV_ITEMS = [
   { path: '/subjects', label: 'Subjects', icon: BookOpen },
   { path: '/record', label: 'Record', icon: Mic },
-  { path: '/stats', label: 'Statistics', icon: BarChart3 },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]
 

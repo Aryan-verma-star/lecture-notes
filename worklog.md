@@ -270,9 +270,34 @@ Unresolved issues / risks:
 - agent-browser session state file occasionally needs reloading after daemon restarts (sessionState loss is cosmetic).
 
 Next-phase priorities (for the next webDevReview):
-1. Record: post-stop title edit before upload; upload progress indicator (XHR progress) for large files.
-2. LLM-generated flashcard decks (notes → deck endpoint via z-ai chat) as an upgrade over heuristic cards.
-3. Empty-state SVG illustrations (subtle, within design language).
-4. Settings appearance: font-size preference (persisted).
-5. Stats: streak tracking (days in a row with recordings).
-6. Optional: parallel chunk transcription + per-chunk progress.
+1. ~~Record: post-stop title edit before upload~~ ✅ implemented in round 8 (before scope change below)
+2. ~~Upload progress indicator~~ ✅ implemented in round 8 (api.upload XHR helper — NOTE: reverted with the round-8 scope change; re-add if needed)
+3. LLM-generated flashcard decks (notes → deck endpoint via z-ai chat).
+4. Empty-state SVG illustrations (subtle, within design language).
+
+---
+Task ID: 8-a
+Agent: Main agent (direct user request)
+Task: User-directed scope change — REMOVE Statistics (page, nav, palette action, shortcut, API route), REMOVE GitHub connection from Settings (backend-managed now; also removed from lecture detail + API routes), REMOVE Register (view, route, link, API route), and ADD proper login (per-field validation, password visibility toggle, real error surfacing).
+
+Work Log:
+- Removed Stats everywhere: StatsView.tsx deleted; App route case, sidebar nav item, mobile tab, `g t` shortcut, palette "Go to statistics" action all removed; `/api/stats` route deleted; stats CSS blocks (stat-grid/cards, subject-stat rows, activity chart + controls/weekly, mobile stats rules) removed from globals.css; GithubStatus/Stats/SubjectStat types removed from api.ts. `#/stats` now falls back to Subjects.
+- Removed GitHub UI: SettingsView rewritten without the GitHub Connection section + OAuth modal (keeps API Configuration / Data / Account); LectureDetailView "View on GitHub"/"Connect GitHub" buttons + github status fetch removed; `/api/github/*` routes deleted; auth.ts getAuthUser select trimmed to id/email. (User model schema fields left in place — harmless, backend concern.)
+- Removed Register: RegisterView.tsx deleted; App AuthScreen renders LoginView only; register link removed from login; AuthContext.register removed; `/api/auth/register` route deleted. `#/register` falls back like any unknown route.
+- Proper login: per-field inline validation (empty email → "Enter your email address.", bad format → "Enter a valid email address.", empty password → "Enter your password."), submit button disabled until both fields non-empty, password visibility toggle (Eye/EyeOff, type=text/password swap), inputs disabled while loading, server errors ("Invalid email or password.") render inline under the password field with invalid styling; errors clear as the user types.
+- BUG FOUND & FIXED (pre-existing, surfaced by this round's E2E): api.ts treated ANY 401 as session-expiry → window.location.reload(), which wiped the login form on invalid credentials (the page reloaded instead of showing "Invalid email or password."). Fixed: only auto-reload on 401 when a token was actually attached to the request; tokenless 401s (login) surface their error normally.
+- INCIDENT & RECOVERY: mid-round, a `git stash` + drop (used while repairing globals.css after a bad scripted edit) reverted ALL uncommitted TSX changes. Recovered by re-applying every edit (App/Sidebar/Layout/CommandPalette/shortcuts/SettingsView/LoginView/AuthContext/LectureDetailView/api.ts deletions) — all re-verified after. globals.css was separately repaired via git checkout + precise line-range removals (stats sections) + new password-field CSS. Lesson recorded: never stash a dirty tree mid-round; repair files individually.
+- E2E verified after recovery: login page has password toggle + NO register link; empty submit → both field errors; bad email format → inline error; password toggle flips input type; invalid creds → "Invalid email or password." inline (no page reload), input marked invalid; valid login → subjects, nav = Subjects/Record/Settings only; Settings sections = API Configuration/Data/Account (no GitHub); lecture detail has no GitHub buttons (both timer + AI-transcribed lectures checked); palette has no statistics action; #/stats and #/register fall back cleanly; mobile tabs = 3; export still downloads (intercepted: lecture-notes-export-2026-08-23.md, "Exported 5 notes"); lint clean (0/0); register/stats/github API routes all 404.
+
+Stage Summary:
+- App scope now matches the user's spec: no stats, no GitHub UI, no register — clean three-tab app (Subjects / Record / Settings) with a properly validated login flow. All removals verified end-to-end; one real pre-existing login bug (401 reload) found and fixed.
+
+Unresolved issues / risks:
+- Round-8 in-progress features (post-stop title edit, upload progress via api.upload, streaks) were reverted by the stash incident and NOT re-applied (out of the new scope; worklog history documents them for easy re-add).
+- No way to create accounts through the UI anymore (by design — accounts come from the external backend). The existing demo account (student@university.edu / password123) remains in the DB for testing.
+- Prisma User schema still carries github* fields (unused; left for the real backend to own).
+
+Next-phase priorities (for the next webDevReview):
+1. Wire login to the real backend (swap /api/auth/login internals or base URL — client is same-origin).
+2. Re-add upload progress + post-stop title edit if desired (code documented in worklog round 8 pre-revert).
+3. LLM-generated flashcard decks; empty-state SVG illustrations.
