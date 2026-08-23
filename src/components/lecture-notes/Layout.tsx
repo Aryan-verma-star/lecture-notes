@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { BookOpen, Mic, Settings } from 'lucide-react'
+import { BarChart3, BookOpen, Mic, Search, Settings } from 'lucide-react'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { navigate } from '@/lib/router'
@@ -9,6 +9,7 @@ import { navigate } from '@/lib/router'
 const TABS = [
   { path: '/subjects', label: 'Subjects', icon: BookOpen },
   { path: '/record', label: 'Record', icon: Mic },
+  { path: '/stats', label: 'Stats', icon: BarChart3 },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]
 
@@ -17,19 +18,25 @@ interface LayoutProps {
   email: string
   wide?: boolean
   onSignOut: () => void
+  onOpenPalette: () => void
   children: ReactNode
 }
 
 /** App shell: desktop sidebar / mobile topbar + bottom tabs, content column. */
-export function Layout({ path, email, wide, onSignOut, children }: LayoutProps) {
+export function Layout({ path, email, wide, onSignOut, onOpenPalette, children }: LayoutProps) {
   const activeRoot = `/${path.split('/').filter(Boolean)[0] ?? 'subjects'}`
 
   return (
     <div className="app-shell">
-      <Sidebar activePath={path} email={email} onSignOut={onSignOut} />
+      <Sidebar
+        activePath={path}
+        email={email}
+        onSignOut={onSignOut}
+        onOpenPalette={onOpenPalette}
+      />
       <div className="app-main">
-        <Topbar path={path} email={email} />
-        <main className={`page ${wide ? 'page-wide' : ''}`}>{children}</main>
+        <Topbar path={path} email={email} onOpenPalette={onOpenPalette} />
+        <main className={`page ${wide ? 'page-wide' : ''} page-enter`}>{children}</main>
       </div>
 
       {/* Mobile bottom tab bar */}

@@ -29,6 +29,7 @@ export function Button({
   const classes = [
     `btn-${variant}`,
     size === 'lg' ? 'btn-lg' : '',
+    size === 'sm' ? 'btn-sm' : '',
     block ? 'btn-block' : '',
     className,
   ]

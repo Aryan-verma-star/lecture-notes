@@ -15,6 +15,20 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${Math.round(seconds)}s`
 }
 
+/** Compact hours display for stats: "12.5h", "45m", "—". */
+export function formatHours(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return '—'
+  const h = seconds / 3600
+  if (h >= 1) return `${h % 1 === 0 ? h.toFixed(0) : h.toFixed(1)}h`
+  const m = Math.floor(seconds / 60)
+  if (m >= 1) return `${m}m`
+  return `${Math.round(seconds)}s`
+}
+
+export function formatNumber(n: number): string {
+  return n.toLocaleString('en-US')
+}
+
 export function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds))
   const h = Math.floor(s / 3600)

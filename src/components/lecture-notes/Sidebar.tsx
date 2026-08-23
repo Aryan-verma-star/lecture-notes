@@ -1,21 +1,26 @@
 'use client'
 
-import { AudioLines, BookOpen, LogOut, Mic, Settings } from 'lucide-react'
+import { AudioLines, BookOpen, BarChart3, LogOut, Mic, Search, Settings } from 'lucide-react'
 import { navigate } from '@/lib/router'
 
 const NAV_ITEMS = [
   { path: '/subjects', label: 'Subjects', icon: BookOpen },
   { path: '/record', label: 'Record', icon: Mic },
+  { path: '/stats', label: 'Statistics', icon: BarChart3 },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]
+
+const isMac =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
 
 interface SidebarProps {
   activePath: string
   email: string
   onSignOut: () => void
+  onOpenPalette: () => void
 }
 
-export function Sidebar({ activePath, email, onSignOut }: SidebarProps) {
+export function Sidebar({ activePath, email, onSignOut, onOpenPalette }: SidebarProps) {
   const activeRoot = `/${activePath.split('/').filter(Boolean)[0] ?? 'subjects'}`
 
   return (
@@ -26,6 +31,17 @@ export function Sidebar({ activePath, email, onSignOut }: SidebarProps) {
         </span>
         <span className="subheading">Lecture Notes</span>
       </div>
+
+      <button
+        className="sidebar-search"
+        onClick={onOpenPalette}
+        aria-label="Open search (Ctrl+K)"
+        title="Search (Ctrl+K)"
+      >
+        <Search size={14} strokeWidth={1.5} />
+        <span className="sidebar-search-label">Search…</span>
+        <span className="sidebar-search-kbd kbd">{isMac ? '⌘K' : 'Ctrl K'}</span>
+      </button>
 
       <nav className="sidebar-nav">
         {NAV_ITEMS.map((item) => {

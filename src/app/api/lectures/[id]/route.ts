@@ -30,6 +30,31 @@ export async function GET(request: Request, { params }: Params) {
   })
 }
 
+/** Renames a lecture. */
+export async function PATCH(request: Request, { params }: Params) {
+  const user = await getAuthUser(request)
+  if (!user) return unauthorized()
+  const { id } = await params
+
+  const lecture = await db.lecture.findFirst({
+    where: { id, subject: { userId: user.id } },
+  })
+  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
+
+  const body = await request.json().catch(() => null)
+  const title = typeof body?.title === 'string' ? body.title.trim() : ''
+
+  if (!title) {
+    return Response.json({ error: 'Title is required.' }, { status: 400 })
+  }
+  if (title.length > 120) {
+    return Response.json({ error: 'Title must be under 120 characters.' }, { status: 400 })
+  }
+
+  const updated = await db.lecture.update({ where: { id }, data: { title } })
+  return Response.json({ id: updated.id, title: updated.title })
+}
+
 export async function DELETE(request: Request, { params }: Params) {
   const user = await getAuthUser(request)
   if (!user) return unauthorized()

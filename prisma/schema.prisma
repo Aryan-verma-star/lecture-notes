@@ -43,6 +43,7 @@ model Lecture {
   markdown            String?
   errorMessage        String?
   failFlag            Boolean   @default(false)
+  regenCount          Int       @default(0)
   processingStartedAt DateTime?
   hasAudio            Boolean   @default(false)
   createdAt           DateTime  @default(now())

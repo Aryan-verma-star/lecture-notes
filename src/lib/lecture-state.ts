@@ -281,6 +281,7 @@ export function generateMarkdown(
     id: string
     title: string
     durationSeconds: number | null
+    regenCount?: number
   },
   subjectName: string
 ): string {
@@ -288,7 +289,9 @@ export function generateMarkdown(
     ? formatDuration(lecture.durationSeconds)
     : 'unknown'
   const templates = [TEMPLATE_A, TEMPLATE_B, TEMPLATE_C]
-  const pick = templates[hash(lecture.id) % templates.length]
+  // regenCount rotates the template so "Regenerate" yields fresh notes
+  const seed = hash(lecture.id) + (lecture.regenCount ?? 0)
+  const pick = templates[seed % templates.length]
   return pick(lecture.title, subjectName, duration)
 }
 

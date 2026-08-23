@@ -61,6 +61,8 @@ export const api = {
       method: 'POST',
       body: body instanceof FormData ? body : JSON.stringify(body ?? {}),
     }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 }
 
@@ -127,4 +129,46 @@ export interface GithubStatus {
   connected: boolean
   username?: string | null
   repoName?: string | null
+}
+
+export interface SearchResults {
+  subjects: { id: string; name: string; lectureCount: number }[]
+  lectures: {
+    id: string
+    title: string
+    subjectId: string
+    subjectName: string
+    status: LectureStatus
+    recordedAt: string
+  }[]
+}
+
+export interface SubjectStat {
+  id: string
+  name: string
+  lectureCount: number
+  durationSeconds: number
+  completed: number
+  lastLectureAt?: string | null
+}
+
+export interface Stats {
+  totalSubjects: number
+  totalLectures: number
+  totalDurationSeconds: number
+  completed: number
+  failed: number
+  processing: number
+  completionRate: number | null
+  firstLectureAt?: string | null
+  subjects: SubjectStat[]
+  recentLectures: {
+    id: string
+    title: string
+    subjectId: string
+    subjectName: string
+    status: LectureStatus
+    recordedAt: string
+    durationSeconds?: number | null
+  }[]
 }

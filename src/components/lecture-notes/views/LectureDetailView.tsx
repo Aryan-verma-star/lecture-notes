@@ -6,7 +6,11 @@ import remarkGfm from 'remark-gfm'
 import {
   AlertTriangle,
   ArrowLeft,
+  Check,
+  Copy,
+  Download,
   ExternalLink,
+  Pencil,
   RefreshCw,
   Trash2,
 } from 'lucide-react'
@@ -31,6 +35,11 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
   const [retrying, setRetrying] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const [renamingBusy, setRenamingBusy] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const back = useBack('/subjects')
 
   const load = useCallback(() => {
@@ -92,6 +101,73 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
     }
   }
 
+  async function handleRegenerate() {
+    setRegenerating(true)
+    try {
+      await api.post(`/api/lectures/${lectureId}/regenerate`)
+      toast('Regenerating notes with a fresh draft', 'info')
+      await load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Regeneration failed', 'error')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  async function handleCopy() {
+    if (!lecture?.markdown) return
+    try {
+      await navigator.clipboard.writeText(lecture.markdown)
+      setCopied(true)
+      toast('Markdown copied to clipboard', 'success')
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast('Clipboard unavailable in this browser', 'error')
+    }
+  }
+
+  function handleDownload() {
+    if (!lecture?.markdown) return
+    const slug =
+      lecture.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '') || 'lecture-notes'
+    const blob = new Blob([lecture.markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${slug}.md`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toast('Notes downloaded', 'success')
+  }
+
+  async function handleRenameSubmit() {
+    const title = renameValue.trim()
+    if (!title) {
+      setRenaming(false)
+      return
+    }
+    if (title === lecture?.title) {
+      setRenaming(false)
+      return
+    }
+    setRenamingBusy(true)
+    try {
+      await api.patch(`/api/lectures/${lectureId}`, { title })
+      toast('Lecture renamed', 'success')
+      setRenaming(false)
+      await load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Rename failed', 'error')
+    } finally {
+      setRenamingBusy(false)
+    }
+  }
+
   async function handleDelete() {
     setDeleting(true)
     try {
@@ -115,6 +191,9 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
       </div>
     )
   }
+
+  const isDone = lecture?.status === 'COMPLETED'
+  const canRegenerate = lecture?.status === 'COMPLETED' || lecture?.status === 'FAILED'
 
   return (
     <>
@@ -207,9 +286,58 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
           {/* ------- Metadata sidebar ------- */}
           <aside className="lecture-meta-card" aria-label="Lecture metadata">
             <div className="lecture-meta-row">
-              <h2 className="subheading" style={{ lineHeight: 1.4 }}>
-                {lecture.title}
-              </h2>
+              {renaming ? (
+                <div className="rename-box">
+                  <input
+                    className="input"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameSubmit()
+                      if (e.key === 'Escape') setRenaming(false)
+                    }}
+                    autoFocus
+                    maxLength={120}
+                    aria-label="Lecture title"
+                    disabled={renamingBusy}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setRenaming(false)}
+                      disabled={renamingBusy}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleRenameSubmit}
+                      loading={renamingBusy}
+                      icon={<Check size={13} strokeWidth={1.5} />}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="lecture-title-row">
+                  <h2 className="subheading" style={{ lineHeight: 1.4, flex: 1 }}>
+                    {lecture.title}
+                  </h2>
+                  <button
+                    className="icon-btn"
+                    onClick={() => {
+                      setRenameValue(lecture.title)
+                      setRenaming(true)
+                    }}
+                    aria-label="Rename lecture"
+                    title="Rename lecture"
+                  >
+                    <Pencil size={13} strokeWidth={1.5} />
+                  </button>
+                </div>
+              )}
               <span className="caption">{lecture.subjectName}</span>
             </div>
 
@@ -243,6 +371,31 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
 
             <div className="lecture-meta-divider" />
 
+            {isDone ? (
+              <div className="meta-action-grid">
+                <Button
+                  variant="secondary"
+                  onClick={handleCopy}
+                  icon={
+                    copied ? (
+                      <Check size={14} strokeWidth={1.5} />
+                    ) : (
+                      <Copy size={14} strokeWidth={1.5} />
+                    )
+                  }
+                >
+                  {copied ? 'Copied' : 'Copy MD'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={handleDownload}
+                  icon={<Download size={14} strokeWidth={1.5} />}
+                >
+                  Download
+                </Button>
+              </div>
+            ) : null}
+
             {github?.connected && github.username && github.repoName ? (
               <a
                 className="btn-secondary btn-block"
@@ -264,6 +417,18 @@ export function LectureDetailView({ lectureId }: { lectureId: string }) {
                 Connect GitHub
               </Button>
             )}
+
+            {canRegenerate ? (
+              <Button
+                variant="secondary"
+                block
+                onClick={handleRegenerate}
+                loading={regenerating}
+                icon={<RefreshCw size={14} strokeWidth={1.5} />}
+              >
+                Regenerate notes
+              </Button>
+            ) : null}
 
             {lecture.status === 'FAILED' ? (
               <Button
