@@ -1,45 +1,59 @@
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
+import { getCurrentUser, unauthorized } from '@/lib/auth'
 
 type Params = { params: Promise<{ id: string }> }
 
-/**
- * Persists interactive task-checkbox states for a lecture's notes.
- * Body: { checks: { "taskIndex": boolean, ... } } — replaces the whole map.
- */
 export async function POST(request: Request, { params }: Params) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  const { id } = await params
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+    const { id } = await params
 
-  const lecture = await db.lecture.findFirst({
-    where: { id, subject: { userId: user.id } },
-  })
-  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
+    const lecture = await db.lecture.findFirst({
+      where: { id, userId: user.id },
+      select: { id: true },
+    })
+    if (!lecture) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
+    }
 
-  const body = await request.json().catch(() => null)
-  const raw = body?.checks
+    const body = await request.json().catch(() => null)
+    const raw = body?.checks
 
-  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
-    return Response.json({ error: 'Invalid checks payload.' }, { status: 400 })
+    if (
+      raw == null ||
+      typeof raw !== 'object' ||
+      Array.isArray(raw)
+    ) {
+      return Response.json(
+        { error: 'Invalid checks payload' },
+        { status: 422 }
+      )
+    }
+
+    const checks: Record<string, boolean> = {}
+    for (const [key, value] of Object.entries(
+      raw as Record<string, unknown>
+    )) {
+      if (typeof value === 'boolean') {
+        checks[key] = value
+      }
+    }
+
+    const stored =
+      Object.keys(checks).length > 0 ? JSON.stringify(checks) : null
+
+    await db.lecture.update({
+      where: { id },
+      data: { taskChecks: stored, updatedAt: new Date().toISOString() },
+    })
+
+    return Response.json({
+      ok: true,
+      checks: Object.keys(checks).length > 0 ? checks : {},
+    })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
-
-  // Sanitize to a flat { string: boolean } map with bounded size
-  const checks: Record<string, boolean> = {}
-  let count = 0
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value !== 'boolean') continue
-    if (!/^[a-z0-9-]{1,64}$/.test(key)) continue
-    checks[key] = value
-    count += 1
-    if (count >= 200) break
-  }
-
-  const hasAny = Object.keys(checks).length > 0
-  await db.lecture.update({
-    where: { id },
-    data: { taskChecks: hasAny ? JSON.stringify(checks) : null },
-  })
-
-  return Response.json({ ok: true, checks })
 }

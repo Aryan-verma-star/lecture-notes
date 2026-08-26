@@ -301,3 +301,55 @@ Next-phase priorities (for the next webDevReview):
 1. Wire login to the real backend (swap /api/auth/login internals or base URL — client is same-origin).
 2. Re-add upload progress + post-stop title edit if desired (code documented in worklog round 8 pre-revert).
 3. LLM-generated flashcard decks; empty-state SVG illustrations.
+
+---
+Task ID: 13-routes
+Agent: full-stack-developer
+Task: Write all 12 remaining route handlers + create-user script + .gitignore update.
+
+Work Log:
+- Read worklog.md, src/lib/{auth,db,gemini,pipeline,markdown,mock,api}.ts and the Prisma schema to understand the new String-ID + ISO-string contract.
+- Reviewed the existing (stale) route handlers that still referenced the deleted getAuthUser/lecture-state/asr-pipeline helpers, then overwrote all 12 to use getCurrentUser + genId + new Date().toISOString().
+- Wrote `src/app/api/subjects/route.ts`: GET reaps RECORDING lectures older than 24h (→ FAILED, "Recording abandoned") and returns subjects with _count + take:1 lastLecture; POST 422s on empty name, genId() + ISO timestamps, defaults description to null.
+- Wrote `src/app/api/subjects/[id]/route.ts`: GET returns {id,name,description,createdAt,lectures: LectureSlim[6 fields]}; PATCH 422s on empty name, returns {id,name,description}; DELETE cascades.
+- Wrote `src/app/api/lectures/route.ts`: GET filters by userId (and optional subjectId with ownership check, 404 otherwise) ordered by recordedAt DESC with subjectName; POST 422s on missing subjectId, falls back to "Untitled Lecture" for empty title, creates with status=RECORDING and full ISO timestamps, returns full Lecture shape.
+- Wrote `src/app/api/lectures/[id]/route.ts`: GET returns LectureDetail with hasTranscript + parsed taskChecks; PATCH 422s on empty title; DELETE removes the lecture and best-effort fs.unlink('uploads/{id}').
+- Wrote `src/app/api/lectures/[id]/audio/route.ts`: 404 + status-guard (RECORDING|FAILED only, else 422), handles multipart (audio + duration) and JSON (durationSeconds), enforces MAX_AUDIO_BYTES with 413 + partial-file cleanup, writes to uploads/{id}, sets PROCESSING/progress 0/substage/error null/markdown null, launches processLecture via after() with setImmediate fallback.
+- Wrote `src/app/api/lectures/[id]/status/route.ts`: cheap select of 4 fields + updatedAt, side-effect FAILED + "Processing timed out" if PROCESSING > 15min.
+- Wrote `src/app/api/lectures/[id]/retry/route.ts`: 422 if not FAILED, resets fields, launches processLecture via after(), returns {status:'PROCESSING', pipeline:'ai'}.
+- Wrote `src/app/api/lectures/[id]/regenerate/route.ts`: 422 unless COMPLETED|FAILED, bumps regenerateCount, launches pipeline.
+- Wrote `src/app/api/lectures/[id]/checks/route.ts`: validates object payload, sanitizes to {string:boolean}, stores JSON string (or null when empty), returns {ok, checks}.
+- Wrote `src/app/api/lectures/batch-delete/route.ts`: dedupes ids, deletes only userId-scoped lectures, removes their uploads/{id} files in parallel.
+- Wrote `src/app/api/search/route.ts`: empty q → 5 recent subjects + 8 recent lectures; otherwise case-insensitive contains search on subject.name + lecture.title, returns {subjects:[id,name,lectureCount], lectures:[id,title,subjectId,subjectName,status,recordedAt]}.
+- Wrote `src/app/api/export/route.ts`: returns {exportedAt,email,totalSubjects,totalLectures,lecturesWithNotes,subjects:[{id,name,description,lectures:[7 fields]}]} with subjects ordered by name ASC, lectures by recordedAt DESC.
+- Wrote `scripts/create-user.ts`: standalone tsx script that lowercases email, hashes password via hashPassword, genId()s a new user, or updates the passwordHash if the email already exists.
+- Appended `uploads/` and `data/` to .gitignore.
+- Ran `bun run lint` — clean (no errors or warnings).
+
+Stage Summary:
+- All 12 route handlers now match the frontend's api.ts type contract exactly and use the new String-ID/ISO-string Prisma schema.
+- Auth is consistently via getCurrentUser(request); every handler is wrapped in try/catch returning {"error": message} + 500 on unexpected failure; all field-level errors are {"error": "..."} with the spec'd status codes (404 / 422 / 413).
+- The background pipeline is launched through `after(() => processLecture(id).catch(console.error))` with a setImmediate fallback when `after` is unavailable.
+- ESLint passes cleanly across the whole project.
+
+---
+Task ID: 14-backend
+Agent: Main agent + full-stack-developer subagent
+Task: Implement the full backend as Next.js App Router route handlers per the user's exact contract spec.
+
+Work Log:
+- Installed jose (JWT HS256); rewrote prisma/schema.prisma with the spec's schema (String IDs, String timestamps, userId on Lecture, progressPercent/substage/regenerateCount fields, no pipelineStage/audioPath/failFlag); deleted old lib files (asr-pipeline.ts, lecture-state.ts); created new libs: db.ts (Prisma singleton), auth.ts (jose JWT + scryptSync), gemini.ts (plain fetch to Gemini REST API, detectMime, RESPONSE_SCHEMA, SYNTHESIS_PROMPT, TRANSCRIBE_PROMPT, retries), markdown.ts (deterministic renderNotes), mock.ts (MOCK_TRANSCRIPT, MOCK_SYNTHESIS, mockTranscribe, mockSynthesize), pipeline.ts (processLecture with 6 steps: timer session, transcription, synthesis, rendering, error handling with audio file preservation/deletion rules).
+- Subagent wrote all 12 remaining route handlers + scripts/create-user.ts + .gitignore update. All routes use getCurrentUser, genId(), ISO timestamps, {"error": string} error shapes, Promise<{id}> params, after() for pipeline launch.
+- Fixed scryptSync bug (crypto.scrypt is async, needed scryptSync).
+- Fixed pipeline bug: regenerate/retry on a lecture whose audio was already deleted took the timer-session path and overwrote good markdown with the timer template. Fixed: pipeline now checks for existing transcript FIRST and skips to synthesis if present.
+- Re-applied round-12 font/button fixes that were lost during the backend rewrite: :root --font-sans now uses literal stacks (not var(--font-inter) which is out of scope); body prepends var(--font-inter); .btn-danger-solid added to shared button selector; .btn-primary and .btn-danger-solid use wine-100 text color (WCAG AA); .btn-danger-solid uses wine-500 bg (not error red); removed duplicate old hover/active rules.
+
+Stage Summary:
+- E2E verified with curl: login (JWT token) ✓, bad login 401 {"error":"Invalid email or password."} ✓, /api/me ✓, no token 401 ✓, create subject ✓, get subjects ✓, create lecture (empty title → "Untitled Lecture") ✓, timer session upload → COMPLETED with timer markdown ✓, audio upload (multipart WAV) → COMPLETED with mock notes ✓, status polling ✓, regenerate (uses existing transcript, produces proper mock notes) ✓, search ✓, export ✓, checks ✓, batch-delete ✓, empty name 422 ✓.
+- E2E verified with agent-browser: login works, subjects page shows test subject, lecture detail renders full mock markdown (6 H2 sections: Summary, Key Takeaways, The Perceptron, Assignments, Exam Hints, Cross-Topic Relationships), title "Introduction to Neural Networks" from mock synthesis, Inter font loading, status pill "Completed".
+- Lint clean (0/0). GEMINI_MOCK=1 throughout.
+
+Unresolved issues / risks:
+- Boot sweep (PROCESSING → FAILED on server startup) not explicitly implemented; the 15-min timeout in GET /status handles the practical case.
+- Old localStorage tokens (HMAC format) from before the rewrite are automatically cleared on 401 reload (the new jose JWT verification rejects them).
+- Real Gemini API calls untested (GEMINI_MOCK=1); the gemini.ts client follows the spec exactly for production use.

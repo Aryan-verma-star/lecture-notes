@@ -1,75 +1,117 @@
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
-import { syncLectureState } from '@/lib/lecture-state'
+import { getCurrentUser, genId, unauthorized } from '@/lib/auth'
+
+function toLectureShape(l: {
+  id: string
+  subjectId: string
+  title: string
+  status: string
+  recordedAt: string
+  durationSeconds: number | null
+  markdown: string | null
+  errorMessage: string | null
+  hasAudio: boolean
+  subject?: { name: string } | null
+}) {
+  return {
+    id: l.id,
+    subjectId: l.subjectId,
+    subjectName: l.subject?.name ?? null,
+    title: l.title,
+    status: l.status,
+    recordedAt: l.recordedAt,
+    durationSeconds: l.durationSeconds,
+    markdown: l.markdown,
+    errorMessage: l.errorMessage,
+    hasAudio: l.hasAudio,
+  }
+}
 
 export async function GET(request: Request) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
 
-  const url = new URL(request.url)
-  const subjectId = url.searchParams.get('subjectId')
+    const url = new URL(request.url)
+    const subjectId = url.searchParams.get('subjectId')
 
-  const where = subjectId
-    ? { subjectId, subject: { userId: user.id } }
-    : { subject: { userId: user.id } }
+    if (subjectId) {
+      // Verify the subject belongs to the user
+      const subject = await db.subject.findFirst({
+        where: { id: subjectId, userId: user.id },
+        select: { id: true },
+      })
+      if (!subject) {
+        return Response.json({ error: 'Not found' }, { status: 404 })
+      }
+    }
 
-  const lectures = await db.lecture.findMany({
-    where,
-    orderBy: { recordedAt: 'desc' },
-    include: { subject: { select: { name: true } } },
-  })
+    const where = subjectId
+      ? { subjectId, userId: user.id }
+      : { userId: user.id }
 
-  const synced = []
-  for (const lecture of lectures) {
-    synced.push(await syncLectureState(lecture, lecture.subject.name))
+    const lectures = await db.lecture.findMany({
+      where,
+      orderBy: { recordedAt: 'desc' },
+      include: { subject: { select: { name: true } } },
+    })
+
+    return Response.json(lectures.map(toLectureShape))
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
-
-  return Response.json(
-    synced.map((l) => ({
-      id: l.id,
-      subjectId: l.subjectId,
-      subjectName: (l as { subject?: { name: string } }).subject?.name,
-      title: l.title,
-      status: l.status,
-      recordedAt: l.recordedAt,
-      durationSeconds: l.durationSeconds,
-    }))
-  )
 }
 
 export async function POST(request: Request) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-
   try {
-    const body = await request.json().catch(() => null)
-    const subjectId = typeof body?.subjectId === 'string' ? body.subjectId : ''
-    const title = typeof body?.title === 'string' ? body.title.trim() : ''
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
 
-    if (!subjectId || !title) {
-      return Response.json({ error: 'Subject and title are required.' }, { status: 400 })
+    const body = await request.json().catch(() => null)
+    const subjectId =
+      typeof body?.subjectId === 'string' ? body.subjectId : ''
+    const titleRaw =
+      typeof body?.title === 'string' ? body.title.trim() : ''
+
+    if (!subjectId) {
+      return Response.json(
+        { error: 'Subject id must not be empty' },
+        { status: 422 }
+      )
     }
 
-    const subject = await db.subject.findFirst({ where: { id: subjectId, userId: user.id } })
-    if (!subject) return Response.json({ error: 'Subject not found.' }, { status: 404 })
+    const subject = await db.subject.findFirst({
+      where: { id: subjectId, userId: user.id },
+      select: { id: true, name: true },
+    })
+    if (!subject) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    const title = titleRaw.length > 0 ? titleRaw : 'Untitled Lecture'
+    const now = new Date().toISOString()
 
     const lecture = await db.lecture.create({
-      data: { subjectId, title, status: 'RECORDING' },
+      data: {
+        id: genId(),
+        userId: user.id,
+        subjectId,
+        title,
+        status: 'RECORDING',
+        recordedAt: now,
+        hasAudio: false,
+        progressPercent: 0,
+        regenerateCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      include: { subject: { select: { name: true } } },
     })
 
-    return Response.json(
-      {
-        id: lecture.id,
-        subjectId: lecture.subjectId,
-        title: lecture.title,
-        status: lecture.status,
-        recordedAt: lecture.recordedAt,
-        durationSeconds: lecture.durationSeconds,
-      },
-      { status: 201 }
-    )
-  } catch (err) {
-    console.error('create lecture error', err)
-    return Response.json({ error: 'Could not create lecture.' }, { status: 500 })
+    return Response.json(toLectureShape(lecture), { status: 201 })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
 }

@@ -8,50 +8,41 @@ datasource db {
 }
 
 model User {
-  id              String   @id @default(cuid())
-  email           String   @unique
-  passwordHash    String
-  githubConnected Boolean  @default(false)
-  githubUsername  String?
-  githubRepoName  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  subjects        Subject[]
+  id           String   @id
+  email        String   @unique
+  passwordHash String
+  createdAt    String
+  subjects     Subject[]
 }
 
 model Subject {
-  id          String    @id @default(cuid())
+  id          String   @id
   userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
   description String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   String
+  updatedAt   String
   lectures    Lecture[]
-
-  @@index([userId])
 }
 
 model Lecture {
-  id                  String    @id @default(cuid())
-  subjectId           String
-  subject             Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  title               String
-  status              String    @default("RECORDING") // RECORDING | UPLOADED | PROCESSING | COMPLETED | FAILED
-  recordedAt          DateTime  @default(now())
-  durationSeconds     Int?
-  markdown            String?
-  taskChecks          String?   // JSON object: { "task-index": true } persisted checkbox states
-  transcript          String?   // real ASR transcript (when audio was processed by the AI pipeline)
-  pipelineStage       String?   // NULL = simulated timer pipeline; TRANSCRIBING | GENERATING = real AI pipeline
-  audioPath           String?   // absolute path of the stored audio file on disk
-  errorMessage        String?
-  failFlag            Boolean   @default(false)
-  regenCount          Int       @default(0)
-  processingStartedAt DateTime?
-  hasAudio            Boolean   @default(false)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-
-  @@index([subjectId])
+  id               String   @id
+  userId           String
+  subjectId        String
+  subject          Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title            String
+  status           String   // RECORDING|PROCESSING|COMPLETED|FAILED
+  recordedAt       String
+  durationSeconds  Int?
+  hasAudio         Boolean  @default(false)
+  markdown         String?
+  transcript       String?
+  errorMessage     String?
+  progressPercent  Int      @default(0)
+  substage         String?
+  taskChecks       String?
+  regenerateCount  Int      @default(0)
+  createdAt        String
+  updatedAt        String
 }

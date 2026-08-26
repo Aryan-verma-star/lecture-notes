@@ -1,32 +1,56 @@
+import { promises as fs } from 'fs'
+import path from 'path'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
-import { deleteAudioFile } from '@/lib/asr-pipeline'
+import { getCurrentUser, unauthorized } from '@/lib/auth'
+
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 
 /** Batch-deletes lectures owned by the authenticated user. Body: { ids: string[] } */
 export async function POST(request: Request) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
 
-  const body = await request.json().catch(() => null)
-  const ids = Array.isArray(body?.ids) ? body.ids.filter((i: unknown): i is string => typeof i === 'string') : []
+    const body = await request.json().catch(() => null)
+    const rawIds = Array.isArray(body?.ids) ? body.ids : []
+    // Dedupe + keep only strings
+    const seen = new Set<string>()
+    const ids: string[] = []
+    for (const i of rawIds) {
+      if (typeof i !== 'string' || !i) continue
+      if (seen.has(i)) continue
+      seen.add(i)
+      ids.push(i)
+    }
 
-  if (ids.length === 0) {
-    return Response.json({ error: 'No lecture ids provided.' }, { status: 400 })
+    if (ids.length === 0) {
+      return Response.json({ deleted: 0 })
+    }
+
+    // Find only lectures owned by this user
+    const owned = await db.lecture.findMany({
+      where: { id: { in: ids }, userId: user.id },
+      select: { id: true },
+    })
+
+    // Best-effort cleanup of on-disk audio files
+    await Promise.all(
+      owned.map(async (l) => {
+        try {
+          await fs.unlink(path.join(UPLOADS_DIR, l.id))
+        } catch {
+          /* file may not exist */
+        }
+      })
+    )
+
+    const result = await db.lecture.deleteMany({
+      where: { id: { in: owned.map((l) => l.id) }, userId: user.id },
+    })
+
+    return Response.json({ deleted: result.count })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
-  if (ids.length > 100) {
-    return Response.json({ error: 'Cannot delete more than 100 lectures at once.' }, { status: 400 })
-  }
-
-  // Scoped to the owning user via the subject relation
-  const owned = await db.lecture.findMany({
-    where: { id: { in: ids }, subject: { userId: user.id } },
-    select: { audioPath: true },
-  })
-  await Promise.all(owned.map((l) => deleteAudioFile(l.audioPath)))
-
-  const result = await db.lecture.deleteMany({
-    where: { id: { in: ids }, subject: { userId: user.id } },
-  })
-
-  return Response.json({ deleted: result.count })
 }

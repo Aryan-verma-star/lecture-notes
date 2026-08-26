@@ -1,77 +1,147 @@
+import { promises as fs } from 'fs'
+import path from 'path'
+import { after } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
-import { audioPathFor, runAiPipeline, saveAudioFile } from '@/lib/asr-pipeline'
+import { getCurrentUser, unauthorized } from '@/lib/auth'
+import { processLecture } from '@/lib/pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
-const MAX_AUDIO_BYTES = 200 * 1024 * 1024 // 200 MB
+const MAX_AUDIO_BYTES = Number(process.env.MAX_AUDIO_BYTES) || 200 * 1024 * 1024
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
 
-/**
- * Accepts the recorded/uploaded audio for a lecture and kicks off the REAL AI
- * pipeline (ASR → LLM notes via z-ai-web-dev-sdk). The audio file is stored on
- * disk so Retry / Regenerate can re-run the pipeline without a re-upload.
- * Timer-only sessions (no file) fall back to the simulated pipeline.
- */
+function launchPipeline(lectureId: string) {
+  try {
+    after(() => {
+      processLecture(lectureId).catch((err) => {
+        console.error(`[pipeline] lecture ${lectureId} failed:`, err)
+      })
+    })
+  } catch {
+    // `after` may throw outside a request scope; fall back to setImmediate
+    setImmediate(() => {
+      processLecture(lectureId).catch((err) => {
+        console.error(`[pipeline] lecture ${lectureId} failed:`, err)
+      })
+    })
+  }
+}
+
 export async function POST(request: Request, { params }: Params) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  const { id } = await params
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+    const { id } = await params
 
-  const lecture = await db.lecture.findFirst({
-    where: { id, subject: { userId: user.id } },
-  })
-  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
-  if (lecture.status === 'PROCESSING' || lecture.status === 'COMPLETED') {
-    return Response.json({ error: 'This lecture is already processing or completed.' }, { status: 409 })
-  }
-
-  let hasAudio = false
-  let durationSeconds: number | null = null
-  let savedPath: string | null = null
-
-  const contentType = request.headers.get('content-type') || ''
-  if (contentType.includes('multipart/form-data')) {
-    const form = await request.formData()
-    const file = form.get('audio')
-    const durationRaw = form.get('duration')
-
-    if (typeof durationRaw === 'string' && durationRaw) {
-      const parsed = Number(durationRaw)
-      if (Number.isFinite(parsed) && parsed >= 0) durationSeconds = Math.round(parsed)
+    const lecture = await db.lecture.findFirst({
+      where: { id, userId: user.id },
+      select: {
+        id: true,
+        status: true,
+        durationSeconds: true,
+      },
+    })
+    if (!lecture) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
     }
-    if (file instanceof File && file.size > 0) {
-      if (file.size > MAX_AUDIO_BYTES) {
-        return Response.json({ error: 'Audio file exceeds the 200 MB limit.' }, { status: 413 })
+
+    if (
+      lecture.status !== 'RECORDING' &&
+      lecture.status !== 'FAILED'
+    ) {
+      return Response.json(
+        {
+          error:
+            'Audio can only be uploaded while the lecture is RECORDING or FAILED',
+        },
+        { status: 422 }
+      )
+    }
+
+    const contentType = request.headers.get('content-type') || ''
+
+    let audioFile: File | null = null
+    let durationSeconds: number | null = null
+
+    if (contentType.includes('multipart/form-data')) {
+      const form = await request.formData()
+      const file = form.get('audio')
+      const durationRaw = form.get('duration')
+      if (typeof durationRaw === 'string' && durationRaw) {
+        const parsed = Number(durationRaw)
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          durationSeconds = Math.round(parsed)
+        }
       }
-      hasAudio = true
-      savedPath = audioPathFor(id, file.type || '', file.name)
-      await saveAudioFile(savedPath, await file.arrayBuffer())
+      if (file instanceof File && file.size > 0) {
+        audioFile = file
+      }
+    } else {
+      const body = await request.json().catch(() => null)
+      if (
+        body &&
+        typeof body === 'object' &&
+        typeof (body as { durationSeconds?: unknown }).durationSeconds ===
+          'number'
+      ) {
+        const n = (body as { durationSeconds: number }).durationSeconds
+        if (Number.isFinite(n) && n >= 0) {
+          durationSeconds = Math.round(n)
+        }
+      }
     }
-  } else {
-    const body = await request.json().catch(() => null)
-    if (typeof body?.durationSeconds === 'number' && body.durationSeconds >= 0) {
-      durationSeconds = Math.round(body.durationSeconds)
+
+    let hasAudio = false
+    if (audioFile) {
+      if (audioFile.size > MAX_AUDIO_BYTES) {
+        return Response.json(
+          { error: 'Audio file exceeds 200 MB limit' },
+          { status: 413 }
+        )
+      }
+
+      // Ensure uploads dir exists
+      try {
+        await fs.mkdir(UPLOADS_DIR, { recursive: true })
+      } catch {
+        /* may already exist */
+      }
+
+      const buf = Buffer.from(await audioFile.arrayBuffer())
+      try {
+        await fs.writeFile(path.join(UPLOADS_DIR, id), buf)
+        hasAudio = true
+      } catch (err) {
+        // Could not write file — partial upload, clean up
+        try {
+          await fs.unlink(path.join(UPLOADS_DIR, id))
+        } catch {
+          /* ignore */
+        }
+        throw err
+      }
     }
+
+    await db.lecture.update({
+      where: { id },
+      data: {
+        status: 'PROCESSING',
+        progressPercent: 0,
+        substage: 'Transcribing audio',
+        errorMessage: null,
+        markdown: null,
+        hasAudio,
+        durationSeconds:
+          durationSeconds ?? lecture.durationSeconds,
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    launchPipeline(id)
+
+    return Response.json({ status: 'PROCESSING', lectureId: id })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
-
-  const updated = await db.lecture.update({
-    where: { id },
-    data: {
-      status: 'PROCESSING',
-      processingStartedAt: new Date(),
-      hasAudio,
-      audioPath: savedPath ?? lecture.audioPath,
-      durationSeconds: durationSeconds ?? lecture.durationSeconds,
-      failFlag: !hasAudio && Math.random() < 0.15, // simulated failure only for timer sessions
-      errorMessage: null,
-      markdown: null,
-    },
-  })
-
-  // Real AI pipeline when audio exists; simulation otherwise (syncLectureState)
-  if (hasAudio) {
-    void runAiPipeline(id)
-  }
-
-  return Response.json({ status: updated.status, lectureId: updated.id })
 }

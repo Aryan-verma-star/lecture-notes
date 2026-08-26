@@ -1,72 +1,121 @@
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
+import { getCurrentUser, genId, unauthorized } from '@/lib/auth'
 
-export async function GET(request: Request) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-
-  const subjects = await db.subject.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      lectures: {
-        orderBy: { recordedAt: 'desc' },
-        take: 1,
-        select: { id: true, title: true, status: true, recordedAt: true },
-      },
-      _count: { select: { lectures: true } },
+/** Abandons any lecture stuck in RECORDING for > 24h. */
+async function reapAbandonedRecordings(userId: string) {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  await db.lecture.updateMany({
+    where: {
+      userId,
+      status: 'RECORDING',
+      updatedAt: { lt: cutoff },
+    },
+    data: {
+      status: 'FAILED',
+      errorMessage: 'Recording abandoned',
+      updatedAt: new Date().toISOString(),
     },
   })
+}
 
-  const now = Date.now()
-  return Response.json(
-    subjects.map((s) => {
-      const last = s.lectures[0]
-      const recent = last ? now - new Date(last.recordedAt).getTime() < 7 * 24 * 3600 * 1000 : false
-      return {
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        lectureCount: s._count.lectures,
-        lastLectureAt: last?.recordedAt ?? null,
-        lastLectureTitle: last?.title ?? null,
-        lastLectureStatus: last?.status ?? null,
-        active: recent,
-        createdAt: s.createdAt,
-      }
+export async function GET(request: Request) {
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+
+    await reapAbandonedRecordings(user.id)
+
+    const subjects = await db.subject.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        lectures: {
+          orderBy: { recordedAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            recordedAt: true,
+          },
+        },
+        _count: { select: { lectures: true } },
+      },
     })
-  )
+
+    return Response.json(
+      subjects.map((s) => {
+        const last = s.lectures[0]
+        const active =
+          !!last &&
+          (last.status === 'RECORDING' || last.status === 'PROCESSING')
+        return {
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          lectureCount: s._count.lectures,
+          lastLectureAt: last?.recordedAt ?? null,
+          lastLectureTitle: last?.title ?? null,
+          lastLectureStatus: last?.status ?? null,
+          active,
+          createdAt: s.createdAt,
+        }
+      })
+    )
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
+  }
 }
 
 export async function POST(request: Request) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-
   try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+
     const body = await request.json().catch(() => null)
-    const name = typeof body?.name === 'string' ? body.name.trim() : ''
-    const description =
-      typeof body?.description === 'string' && body.description.trim() ? body.description.trim() : null
-
+    const name =
+      typeof body?.name === 'string' ? body.name.trim() : ''
     if (!name) {
-      return Response.json({ error: 'Subject name is required.' }, { status: 400 })
-    }
-    if (name.length > 80) {
-      return Response.json({ error: 'Subject name must be under 80 characters.' }, { status: 400 })
-    }
-
-    const dupe = await db.subject.findFirst({ where: { userId: user.id, name } })
-    if (dupe) {
-      return Response.json({ error: 'You already have a subject with this name.' }, { status: 409 })
+      return Response.json(
+        { error: 'Subject name must not be empty' },
+        { status: 422 }
+      )
     }
 
-    const subject = await db.subject.create({ data: { userId: user.id, name, description } })
+    const description =
+      typeof body?.description === 'string' && body.description.trim()
+        ? body.description.trim()
+        : null
+
+    const now = new Date().toISOString()
+    const subject = await db.subject.create({
+      data: {
+        id: genId(),
+        userId: user.id,
+        name,
+        description,
+        createdAt: now,
+        updatedAt: now,
+      },
+    })
+
     return Response.json(
-      { ...subject, lectureCount: 0, lastLectureAt: null, lastLectureTitle: null, active: false },
+      {
+        id: subject.id,
+        name: subject.name,
+        description: subject.description,
+        lectureCount: 0,
+        lastLectureAt: null,
+        lastLectureTitle: null,
+        lastLectureStatus: null,
+        active: false,
+        createdAt: subject.createdAt,
+      },
       { status: 201 }
     )
-  } catch (err) {
-    console.error('create subject error', err)
-    return Response.json({ error: 'Could not create subject.' }, { status: 500 })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
 }

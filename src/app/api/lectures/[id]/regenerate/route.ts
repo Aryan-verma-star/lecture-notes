@@ -1,43 +1,71 @@
+import { after } from 'next/server'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
-import { runAiPipeline } from '@/lib/asr-pipeline'
+import { getCurrentUser, unauthorized } from '@/lib/auth'
+import { processLecture } from '@/lib/pipeline'
 
 type Params = { params: Promise<{ id: string }> }
 
-/**
- * Re-runs note generation for a completed or failed lecture.
- * Real-audio lectures keep their transcript and only re-run the LLM stage
- * (regenCount nudges the simulated template rotation for timer sessions).
- */
-export async function POST(request: Request, { params }: Params) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  const { id } = await params
-
-  const lecture = await db.lecture.findFirst({
-    where: { id, subject: { userId: user.id } },
-  })
-  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
-  if (lecture.status === 'PROCESSING') {
-    return Response.json({ error: 'This lecture is already processing.' }, { status: 409 })
+function launchPipeline(lectureId: string) {
+  try {
+    after(() => {
+      processLecture(lectureId).catch((err) => {
+        console.error(`[pipeline] lecture ${lectureId} failed:`, err)
+      })
+    })
+  } catch {
+    setImmediate(() => {
+      processLecture(lectureId).catch((err) => {
+        console.error(`[pipeline] lecture ${lectureId} failed:`, err)
+      })
+    })
   }
+}
 
-  const useAiPipeline = Boolean(lecture.audioPath)
+export async function POST(request: Request, { params }: Params) {
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+    const { id } = await params
 
-  const updated = await db.lecture.update({
-    where: { id },
-    data: {
-      status: 'PROCESSING',
-      processingStartedAt: new Date(),
-      failFlag: false,
-      errorMessage: null,
-      markdown: null,
-      regenCount: lecture.regenCount + 1,
-      pipelineStage: null,
-    },
-  })
+    const lecture = await db.lecture.findFirst({
+      where: { id, userId: user.id },
+      select: { id: true, status: true, regenerateCount: true },
+    })
+    if (!lecture) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
+    }
 
-  if (useAiPipeline) void runAiPipeline(id)
+    if (
+      lecture.status !== 'COMPLETED' &&
+      lecture.status !== 'FAILED'
+    ) {
+      return Response.json(
+        {
+          error:
+            'Regenerate is only available for completed or failed lectures',
+        },
+        { status: 422 }
+      )
+    }
 
-  return Response.json({ status: updated.status, pipeline: useAiPipeline ? 'ai' : 'simulated' })
+    await db.lecture.update({
+      where: { id },
+      data: {
+        status: 'PROCESSING',
+        progressPercent: 0,
+        substage: 'Transcribing audio',
+        errorMessage: null,
+        markdown: null,
+        regenerateCount: lecture.regenerateCount + 1,
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    launchPipeline(id)
+
+    return Response.json({ status: 'PROCESSING', pipeline: 'ai' })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
+  }
 }

@@ -1,75 +1,125 @@
+import { promises as fs } from 'fs'
+import path from 'path'
 import { db } from '@/lib/db'
-import { getAuthUser, unauthorized } from '@/lib/auth'
-import { syncLectureState } from '@/lib/lecture-state'
-import { deleteAudioFile } from '@/lib/asr-pipeline'
+import { getCurrentUser, unauthorized } from '@/lib/auth'
 
 type Params = { params: Promise<{ id: string }> }
 
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+
 export async function GET(request: Request, { params }: Params) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  const { id } = await params
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+    const { id } = await params
 
-  const lecture = await db.lecture.findFirst({
-    where: { id, subject: { userId: user.id } },
-    include: { subject: { select: { id: true, name: true } } },
-  })
-  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
+    const lecture = await db.lecture.findFirst({
+      where: { id, userId: user.id },
+      include: { subject: { select: { name: true } } },
+    })
+    if (!lecture) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
+    }
 
-  const synced = await syncLectureState(lecture, lecture.subject.name)
-  return Response.json({
-    id: synced.id,
-    subjectId: synced.subjectId,
-    subjectName: lecture.subject.name,
-    title: synced.title,
-    status: synced.status,
-    recordedAt: synced.recordedAt,
-    durationSeconds: synced.durationSeconds,
-    markdown: synced.markdown,
-    hasTranscript: Boolean(synced.transcript),
-    transcript: synced.transcript,
-    taskChecks: synced.taskChecks ? JSON.parse(synced.taskChecks) : null,
-    errorMessage: synced.errorMessage,
-    hasAudio: synced.hasAudio,
-  })
+    let taskChecks: Record<string, boolean> | null = null
+    if (lecture.taskChecks) {
+      try {
+        const parsed = JSON.parse(lecture.taskChecks)
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          !Array.isArray(parsed)
+        ) {
+          taskChecks = parsed as Record<string, boolean>
+        }
+      } catch {
+        taskChecks = null
+      }
+    }
+
+    return Response.json({
+      id: lecture.id,
+      subjectId: lecture.subjectId,
+      subjectName: lecture.subject?.name ?? null,
+      title: lecture.title,
+      status: lecture.status,
+      recordedAt: lecture.recordedAt,
+      durationSeconds: lecture.durationSeconds,
+      markdown: lecture.markdown,
+      errorMessage: lecture.errorMessage,
+      hasAudio: lecture.hasAudio,
+      hasTranscript: lecture.transcript !== null,
+      transcript: lecture.transcript,
+      taskChecks,
+    })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
+  }
 }
 
-/** Renames a lecture. */
 export async function PATCH(request: Request, { params }: Params) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  const { id } = await params
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+    const { id } = await params
 
-  const lecture = await db.lecture.findFirst({
-    where: { id, subject: { userId: user.id } },
-  })
-  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
+    const lecture = await db.lecture.findFirst({
+      where: { id, userId: user.id },
+      select: { id: true },
+    })
+    if (!lecture) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
+    }
 
-  const body = await request.json().catch(() => null)
-  const title = typeof body?.title === 'string' ? body.title.trim() : ''
+    const body = await request.json().catch(() => null)
+    const title =
+      typeof body?.title === 'string' ? body.title.trim() : ''
 
-  if (!title) {
-    return Response.json({ error: 'Title is required.' }, { status: 400 })
+    if (!title) {
+      return Response.json(
+        { error: 'Title must not be empty' },
+        { status: 422 }
+      )
+    }
+
+    const updated = await db.lecture.update({
+      where: { id },
+      data: { title, updatedAt: new Date().toISOString() },
+    })
+    return Response.json({ id: updated.id, title: updated.title })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
-  if (title.length > 120) {
-    return Response.json({ error: 'Title must be under 120 characters.' }, { status: 400 })
-  }
-
-  const updated = await db.lecture.update({ where: { id }, data: { title } })
-  return Response.json({ id: updated.id, title: updated.title })
 }
 
 export async function DELETE(request: Request, { params }: Params) {
-  const user = await getAuthUser(request)
-  if (!user) return unauthorized()
-  const { id } = await params
+  try {
+    const user = await getCurrentUser(request)
+    if (!user) return unauthorized()
+    const { id } = await params
 
-  const lecture = await db.lecture.findFirst({
-    where: { id, subject: { userId: user.id } },
-  })
-  if (!lecture) return Response.json({ error: 'Lecture not found.' }, { status: 404 })
+    const lecture = await db.lecture.findFirst({
+      where: { id, userId: user.id },
+      select: { id: true },
+    })
+    if (!lecture) {
+      return Response.json({ error: 'Not found' }, { status: 404 })
+    }
 
-  await deleteAudioFile(lecture.audioPath)
-  await db.lecture.delete({ where: { id } })
-  return Response.json({ ok: true })
+    await db.lecture.delete({ where: { id } })
+
+    // Best-effort cleanup of the on-disk audio file
+    try {
+      await fs.unlink(path.join(UPLOADS_DIR, id))
+    } catch {
+      /* file may not exist — ignore */
+    }
+
+    return Response.json({ ok: true })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
+  }
 }

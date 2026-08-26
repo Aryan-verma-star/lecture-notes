@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { createToken, verifyPassword } from '@/lib/auth'
+import { createToken, hashPassword, verifyPassword } from '@/lib/auth'
 
 export async function POST(request: Request) {
   try {
@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     const password = typeof body?.password === 'string' ? body.password : ''
 
     if (!email || !password) {
-      return Response.json({ error: 'Email and password are required.' }, { status: 400 })
+      return Response.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
 
     const user = await db.user.findUnique({ where: { email } })
@@ -16,13 +16,16 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
 
+    const accessToken = await createToken(user.id)
+    const refreshToken = await createToken(user.id)
+
     return Response.json({
-      accessToken: createToken(user.id),
-      refreshToken: createToken(user.id),
+      accessToken,
+      refreshToken,
       user: { id: user.id, email: user.email },
     })
-  } catch (err) {
-    console.error('login error', err)
-    return Response.json({ error: 'Login failed. Please try again.' }, { status: 500 })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Request failed'
+    return Response.json({ error: message }, { status: 500 })
   }
 }

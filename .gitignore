@@ -52,3 +52,7 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# User-uploaded lecture audio + SQLite db files
+uploads/
+data/
