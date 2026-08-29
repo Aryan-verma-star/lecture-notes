@@ -2,10 +2,12 @@
  * Standalone script: creates (or updates) a user record.
  *
  * Usage:
- *   bunx tsx scripts/create-user.ts <email> <password>
+ *   npx tsx scripts/create-user.ts <email> <password>
  *
  * If the email already exists, the password is updated in-place.
+ * Loads .env so DATABASE_URL / SUPABASE_* are available.
  */
+import 'dotenv/config'
 import { db } from '../src/lib/db'
 import { genId, hashPassword } from '../src/lib/auth'
 

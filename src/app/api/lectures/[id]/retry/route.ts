@@ -1,25 +1,10 @@
-import { after } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser, unauthorized } from '@/lib/auth'
 import { processLecture } from '@/lib/pipeline'
 
-type Params = { params: Promise<{ id: string }> }
+export const maxDuration = 300
 
-function launchPipeline(lectureId: string) {
-  try {
-    after(() => {
-      processLecture(lectureId).catch((err) => {
-        console.error(`[pipeline] lecture ${lectureId} failed:`, err)
-      })
-    })
-  } catch {
-    setImmediate(() => {
-      processLecture(lectureId).catch((err) => {
-        console.error(`[pipeline] lecture ${lectureId} failed:`, err)
-      })
-    })
-  }
-}
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(request: Request, { params }: Params) {
   try {
@@ -54,7 +39,8 @@ export async function POST(request: Request, { params }: Params) {
       },
     })
 
-    launchPipeline(id)
+    // Synchronous — runs inside this request (maxDuration 300).
+    await processLecture(id)
 
     return Response.json({ status: 'PROCESSING', pipeline: 'ai' })
   } catch (e) {

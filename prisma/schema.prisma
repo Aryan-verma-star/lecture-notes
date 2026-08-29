@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -36,6 +36,7 @@ model Lecture {
   recordedAt       String
   durationSeconds  Int?
   hasAudio         Boolean  @default(false)
+  storagePath      String?  // internal only — never in API responses
   markdown         String?
   transcript       String?
   errorMessage     String?

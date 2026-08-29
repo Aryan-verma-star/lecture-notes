@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lecture Notes — Deployment &amp; Usage Docs</title>
+<style>
+  :root { --bg:#0f1117; --card:#171a23; --fg:#e6e8ee; --muted:#9aa3b2; --accent:#6ea8fe; --ok:#3ecf8e; --warn:#f0b429; --code:#0b1020; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--fg); line-height:1.6; }
+  header { padding:48px 24px 24px; text-align:center; border-bottom:1px solid #232733; }
+  header h1 { margin:0 0 8px; font-size:30px; }
+  header p { color:var(--muted); margin:0; }
+  main { max-width:860px; margin:0 auto; padding:32px 20px 80px; }
+  section { background:var(--card); border:1px solid #232733; border-radius:12px; padding:24px; margin:20px 0; }
+  h2 { margin-top:0; color:var(--accent); font-size:20px; }
+  h3 { color:var(--fg); font-size:16px; margin:18px 0 8px; }
+  p, li { color:var(--fg); }
+  .muted { color:var(--muted); }
+  code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+  code { background:var(--code); padding:2px 6px; border-radius:5px; font-size:13px; }
+  pre { background:var(--code); padding:14px 16px; border-radius:8px; overflow:auto; font-size:13px; line-height:1.5; }
+  table { width:100%; border-collapse:collapse; margin-top:10px; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #232733; }
+  th { color:var(--accent); }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+  .ok { background:rgba(62,207,142,.15); color:var(--ok); }
+  .warn { background:rgba(240,180,41,.15); color:var(--warn); }
+  ol { padding-left:20px; }
+  a { color:var(--accent); }
+  .step { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Lecture Notes — Docs</h1>
+  <p>Full-stack lecture recorder → AI study notes. Deployed on Vercel + Supabase.</p>
+</header>
+<main>
+
+  <section>
+    <h2>Architecture</h2>
+    <p>This app was migrated to run on <b>Vercel (Hobby)</b> + <b>Supabase (free tier)</b>:</p>
+    <ul>
+      <li><b>Database:</b> Supabase Postgres (Prisma, provider <code>postgresql</code>).</li>
+      <li><b>Audio storage:</b> uploaded <b>directly from the browser</b> to a private Supabase Storage bucket <code>lecture-audio</code> via a short-lived signed URL — never through a Vercel function (4.5&nbsp;MB body limit).</li>
+      <li><b>Processing:</b> the transcription → notes pipeline runs <b>synchronously inside the request</b> (<code>maxDuration = 300</code>s), because Vercel freezes functions after the response.</li>
+      <li><b>Keep-alive:</b> <code>/api/keep-alive</code> runs a real DB query so the free Supabase project doesn't pause after ~7 idle days.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Deploy to Vercel</h2>
+    <p class="step">Step 1 — Import</p>
+    <ol>
+      <li>Go to <a href="https://vercel.com">vercel.com</a> → sign in with GitHub.</li>
+      <li><b>Add New → Project</b> → import <code>Aryan-verma-star/lecture-notes</code> → <b>Import</b>.</li>
+      <li>Framework auto-detects as <b>Next.js</b>. Click <b>Deploy</b> (first deploy may fail without env vars — continue).</li>
+    </ol>
+
+    <p class="step">Step 2 — Environment Variables</p>
+    <p>Project → <b>Settings → Environment Variables</b>. Add every variable below (real values; the bucket + tables already exist):</p>
+    <table>
+      <tr><th>Key</th><th>Value</th></tr>
+      <tr><td><code>DATABASE_URL</code></td><td>Supabase pooler, <b>port 5432</b>: <code>postgresql://postgres.&lt;ref&gt;:&lt;pw&gt;@aws-&lt;region&gt;.pooler.supabase.com:5432/postgres?pgbouncer=true&amp;connection_limit=1</code></td></tr>
+      <tr><td><code>SUPABASE_URL</code></td><td><code>https://&lt;project-ref&gt;.supabase.co</code></td></tr>
+      <tr><td><code>SUPABASE_SERVICE_ROLE_KEY</code></td><td>service-role key (server only)</td></tr>
+      <tr><td><code>GEMINI_API_KEY</code></td><td>your real Gemini key</td></tr>
+      <tr><td><code>GEMINI_MODEL</code></td><td><code>gemini-3.7-flash</code></td></tr>
+      <tr><td><code>GEMINI_FALLBACK_MODELS</code></td><td><code>gemini-3.6-flash,gemini-2.5-flash</code></td></tr>
+      <tr><td><code>GEMINI_TIMEOUT_MS</code></td><td><code>300000</code></td></tr>
+      <tr><td><code>GEMINI_MOCK</code></td><td><code>0</code> (real AI in production)</td></tr>
+      <tr><td><code>AUTH_SECRET</code></td><td>generate: <code>openssl rand -hex 32</code></td></tr>
+      <tr><td><code>MAX_AUDIO_BYTES</code></td><td><code>209715200</code></td></tr>
+      <tr><td><code>GITHUB_TOKEN</code> / <code>GITHUB_REPO</code></td><td>leave blank (backup disabled)</td></tr>
+      <tr><td><code>GITHUB_BRANCH</code></td><td><code>main</code></td></tr>
+      <tr><td><code>GITHUB_BASE_DIR</code></td><td><code>subjects</code></td></tr>
+    </table>
+
+    <p class="step">Step 3 — Redeploy</p>
+    <p><b>Deployments → Redeploy</b>. The build (<code>prisma generate &amp;&amp; next build</code>) must pass.</p>
+
+    <p class="step">Step 4 — Account &amp; verify</p>
+    <p>Log in at the Vercel URL with the pre-created account <code>admin@lecturenotes.app</code> (or run <code>npx tsx scripts/create-user.ts &lt;email&gt; &lt;password&gt;</code> locally). Create a subject → <b>Record</b> ~30s of real speech → a note generates in 1–3 min.</p>
+
+    <p class="step">Step 5 — Keep Supabase awake</p>
+    <p>On <a href="https://cron-job.org">cron-job.org</a> (free): <b>Create Cronjob</b> → URL <code>https://YOUR-APP.vercel.app/api/keep-alive</code> → every <b>12 hours</b>.</p>
+  </section>
+
+  <section>
+    <h2>Using the app</h2>
+    <ul>
+      <li><b>Record</b> — pick a subject, start recording (mic) or run a timer-only session; the audio uploads straight to Storage and notes appear automatically.</li>
+      <li><b>Upload Audio File</b> — same direct-to-Storage path; supports MP3/M4A/WAV/WebM.</li>
+      <li><b>Retry</b> — re-runs the pipeline on a <code>FAILED</code> lecture.</li>
+      <li><b>Regenerate</b> — re-synthesizes notes (skips transcription if a transcript exists).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Troubleshooting</h2>
+    <table>
+      <tr><th>Issue</th><th>Fix</th></tr>
+      <tr><td>Prisma <code>ECONNREFUSED</code> / IPv6</td><td>Use the Supabase <b>pooler</b> URI on port <b>5432</b> (session mode).</td></tr>
+      <tr><td>Upload rejected (403/400)</td><td>Confirm bucket <code>lecture-audio</code> exists and is <b>private</b>.</td></tr>
+      <tr><td>Lecture stuck <code>PROCESSING</code></td><td>The 15-min timeout marks it <code>FAILED</code> → use <b>Retry</b>. Never redeploy mid-processing.</td></tr>
+      <tr><td><span class="badge warn">Free tier</span> &gt;50&nbsp;MB upload fails</td><td>Supabase free Storage caps objects at <b>50&nbsp;MB</b>. Upgrade to Pro or split the recording.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Local development</h2>
+    <pre># .env already present (gitignored)
+GEMINI_MOCK=1   # use mock AI (no API cost)
+npm run dev      # http://localhost:3000</pre>
+    <p class="muted">The local <code>.env</code> points at the same Supabase project, so the admin account created during migration already works here too.</p>
+  </section>
+
+</main>
+</body>
+</html>

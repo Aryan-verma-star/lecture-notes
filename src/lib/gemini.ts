@@ -2,12 +2,31 @@
 // Spec: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
+
+// Fallback chain: if the primary model is overloaded (e.g. 503 "high demand")
+// or otherwise unavailable, the request is retried on these in order.
+const GEMINI_FALLBACK_MODELS = (
+  process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash,gemini-2.5-flash'
+)
+  .split(',')
+  .map((m) => m.trim())
+  .filter(Boolean)
+
+// De-duplicated, primary-first model chain.
+const MODEL_CHAIN = Array.from(new Set([GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS]))
+
 const GEMINI_MOCK = process.env.GEMINI_MOCK === '1'
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`
-const TIMEOUT_MS = 600_000 // 10 minutes
-const RETRY_DELAYS = [2000, 8000, 8000]
+const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 90_000 // 90s per attempt
+const STATUS_RETRY_DELAYS = [2000, 6000] // retry 429/500/503 on the same model
 const RETRY_STATUS = new Set([429, 500, 503])
+
+/** Thrown when no fallback model can help (bad request, auth, etc.). */
+class NonRetryableError extends Error {}
+
+function endpointFor(model: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+}
 
 export const TRANSCRIBE_PROMPT =
   'Transcribe this lecture recording. Remove filler words and non-speech noise. Label speakers if multiple are present (e.g. \'Lecturer:\', \'Student:\'). Return plain text only.'
@@ -199,12 +218,16 @@ export function detectMime(buf: Buffer): string {
   return 'audio/mpeg'
 }
 
-async function callGemini(body: Record<string, unknown>): Promise<unknown> {
+async function callOneModel(
+  body: Record<string, unknown>,
+  model: string
+): Promise<unknown> {
+  const ENDPOINT = endpointFor(model)
   let lastError: Error | null = null
 
-  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+  for (let attempt = 0; attempt <= STATUS_RETRY_DELAYS.length; attempt++) {
     if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt - 1]))
+      await new Promise((r) => setTimeout(r, STATUS_RETRY_DELAYS[attempt - 1]))
     }
 
     const controller = new AbortController()
@@ -228,21 +251,54 @@ async function callGemini(body: Record<string, unknown>): Promise<unknown> {
       }
 
       const text = await res.text()
-      lastError = new Error(
-        `Gemini API ${res.status}: ${text.slice(0, 200)}`
-      )
+      const message = `Gemini API ${res.status} (${model}): ${text.slice(0, 200)}`
+      lastError = new Error(message)
 
-      if (!RETRY_STATUS.has(res.status) && res.status >= 400 && res.status < 500) {
-        break // 4xx (except 429) — don't retry
+      // Retry transient server errors / rate limits on the same model.
+      if (RETRY_STATUS.has(res.status)) continue
+
+      // Any other 4xx is a bad request — no model can fix it.
+      if (res.status >= 400 && res.status < 500) {
+        throw new NonRetryableError(message)
       }
+      // Other 5xx — fall through to the next model.
+      break
     } catch (err) {
       clearTimeout(timer)
+      if (err instanceof NonRetryableError) throw err
+      // Timeout / network error: don't keep hammering this model — let the
+      // caller fall back to the next one immediately.
       lastError = err instanceof Error ? err : new Error(String(err))
-      // Network errors are retryable
+      break
     }
   }
 
   throw lastError ?? new Error('Gemini API call failed')
+}
+
+/**
+ * Calls Gemini, retrying transient failures on the primary model and then
+ * falling back through MODEL_CHAIN until one succeeds.
+ * Returns the parsed response plus the model that produced it.
+ */
+async function callGeminiWithFallback(body: Record<string, unknown>): Promise<{
+  response: unknown
+  model: string
+}> {
+  const errors: string[] = []
+
+  for (const model of MODEL_CHAIN) {
+    try {
+      const response = await callOneModel(body, model)
+      return { response, model }
+    } catch (err) {
+      if (err instanceof NonRetryableError) throw err
+      errors.push(err instanceof Error ? err.message : String(err))
+      // otherwise fall through to the next model in the chain
+    }
+  }
+
+  throw new Error(`All Gemini models failed:\n${errors.join('\n')}`)
 }
 
 function extractText(response: unknown): string {
@@ -277,8 +333,8 @@ export async function transcribeAudio(
     ],
   }
 
-  const response = await callGemini(body)
-  const text = extractText(response)
+  const response = await callGeminiWithFallback(body)
+  const text = extractText(response.response)
   if (!text.trim()) throw new Error('Transcription returned empty text')
   return text.trim()
 }
@@ -307,8 +363,8 @@ export async function synthesizeNotes(
     },
   }
 
-  const response = await callGemini(body)
-  const text = extractText(response)
+  const response = await callGeminiWithFallback(body)
+  const text = extractText(response.response)
   if (!text.trim()) throw new Error('Synthesis returned empty text')
 
   try {

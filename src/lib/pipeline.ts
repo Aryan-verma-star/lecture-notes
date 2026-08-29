@@ -1,32 +1,39 @@
-import { promises as fs } from 'fs'
-import { existsSync } from 'fs'
-import path from 'path'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { db } from '@/lib/db'
 import { transcribeAudio, synthesizeNotes, detectMime } from '@/lib/gemini'
 import { renderNotes } from '@/lib/markdown'
+import { syncToGitHub, isGitHubConfigured } from '@/lib/github'
 
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const BUCKET = 'lecture-audio'
 
-/** Path to the stored audio file for a lecture. */
-function audioFilePath(lectureId: string): string {
-  return path.join(UPLOADS_DIR, lectureId)
+/**
+ * Best-effort GitHub backup after a lecture finishes. Never throws — failures
+ * are logged and must not affect the lecture's COMPLETED status.
+ */
+async function backupToGitHub(userId: string) {
+  if (!isGitHubConfigured()) return
+  try {
+    await syncToGitHub(userId)
+  } catch (err) {
+    console.error('[github] backup failed (non-fatal):', err)
+  }
 }
 
 /**
- * Background pipeline: transcribe → synthesise → render.
- * Updates DB progress at each stage. On failure, marks FAILED and
- * preserves or deletes the audio file depending on where it failed.
+ * Synchronous pipeline: transcribe → synthesise → render.
+ * Runs INSIDE a request (Vercel freezes functions after the response, so the
+ * work must complete before we return). Updates DB progress at each stage.
+ * On failure, marks FAILED and preserves the storage object when safe.
  */
 export async function processLecture(lectureId: string): Promise<void> {
   const lecture = await db.lecture.findUnique({ where: { id: lectureId } })
   if (!lecture) return
   if (lecture.status !== 'PROCESSING') return
 
-  const audioPath = audioFilePath(lectureId)
-  const hasAudioFile = existsSync(audioPath)
+  const storagePath = lecture.storagePath
   const hasTranscript = !!lecture.transcript
 
-  let transcribed = false
+  const now = () => new Date().toISOString()
 
   try {
     // ── If a transcript already exists (retry/regenerate), skip to synthesis ──
@@ -38,7 +45,7 @@ export async function processLecture(lectureId: string): Promise<void> {
         data: {
           progressPercent: 50,
           substage: 'Structuring notes',
-          updatedAt: new Date().toISOString(),
+          updatedAt: now(),
         },
       })
 
@@ -49,7 +56,7 @@ export async function processLecture(lectureId: string): Promise<void> {
         data: {
           progressPercent: 85,
           substage: 'Writing summary',
-          updatedAt: new Date().toISOString(),
+          updatedAt: now(),
         },
       })
 
@@ -70,23 +77,15 @@ export async function processLecture(lectureId: string): Promise<void> {
           markdown,
           title: finalTitle,
           errorMessage: null,
-          updatedAt: new Date().toISOString(),
+          updatedAt: now(),
         },
       })
+      await backupToGitHub(lecture.userId)
       return
     }
 
-    // ── Timer session (no audio file on disk) ──
-    if (!hasAudioFile) {
-      await db.lecture.update({
-        where: { id: lectureId },
-        data: {
-          progressPercent: 85,
-          substage: 'Writing summary',
-          updatedAt: new Date().toISOString(),
-        },
-      })
-
+    // ── Timer session (no storage object and no transcript) ──
+    if (!storagePath) {
       const timerMarkdown = `# ${lecture.title}\n\n## Summary\nNo audio was captured for this session — it was recorded as a timer-only session. Record with a microphone or upload an audio file to generate full notes.\n`
 
       await db.lecture.update({
@@ -96,71 +95,74 @@ export async function processLecture(lectureId: string): Promise<void> {
           progressPercent: 100,
           substage: null,
           markdown: timerMarkdown,
-          updatedAt: new Date().toISOString(),
+          updatedAt: now(),
         },
       })
       return
     }
 
-    // ── Step 3: Transcription ──
+    // ── Transcription from Supabase Storage ──
     await db.lecture.update({
       where: { id: lectureId },
       data: {
         progressPercent: 10,
         substage: 'Transcribing audio',
-        updatedAt: new Date().toISOString(),
+        updatedAt: now(),
       },
     })
 
-    const audioBuf = await fs.readFile(audioPath)
+    const { data, error } = await supabaseAdmin.storage
+      .from(BUCKET)
+      .download(storagePath)
+    if (error || !data) {
+      throw new Error(
+        `Storage download failed: ${error?.message ?? 'no data returned'}`
+      )
+    }
+
+    const audioBuf = Buffer.from(await data.arrayBuffer())
     const mimeType = detectMime(audioBuf)
     const base64 = audioBuf.toString('base64')
 
     const transcript = await transcribeAudio(base64, mimeType)
 
-    // CHECKPOINT: save transcript, then delete audio
+    // CHECKPOINT: save transcript, then delete the storage object (the ONLY
+    // deletion point — before this, a retry can re-download and re-transcribe).
     await db.lecture.update({
       where: { id: lectureId },
-      data: {
-        transcript,
-        updatedAt: new Date().toISOString(),
-      },
+      data: { transcript, updatedAt: now() },
     })
-    transcribed = true
 
-    // Delete audio file (the ONLY deletion point)
     try {
-      await fs.unlink(audioPath)
-    } catch {
-      /* already gone */
+      await supabaseAdmin.storage.from(BUCKET).remove([storagePath])
+    } catch (e) {
+      console.error('[pipeline] failed to remove storage object:', e)
     }
 
-    // ── Step 4: Synthesis ──
+    // ── Synthesis ──
     await db.lecture.update({
       where: { id: lectureId },
       data: {
         progressPercent: 50,
         substage: 'Structuring notes',
-        updatedAt: new Date().toISOString(),
+        updatedAt: now(),
       },
     })
 
     const synthesis = await synthesizeNotes(transcript)
 
-    // ── Step 5: Rendering ──
+    // ── Rendering ──
     await db.lecture.update({
-      where: { id:lectureId },
+      where: { id: lectureId },
       data: {
         progressPercent: 85,
         substage: 'Writing summary',
-        updatedAt: new Date().toISOString(),
+        updatedAt: now(),
       },
     })
 
     const markdown = renderNotes(synthesis)
 
-    // ── Step 6: Complete ──
-    // If the lecture was untitled, use the synthesis-generated title
     let finalTitle = lecture.title
     const synthTitle = (synthesis as { lectureTitle?: string }).lectureTitle
     if (lecture.title === 'Untitled Lecture' && synthTitle) {
@@ -176,23 +178,21 @@ export async function processLecture(lectureId: string): Promise<void> {
         markdown,
         title: finalTitle,
         errorMessage: null,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now(),
       },
     })
+    await backupToGitHub(lecture.userId)
   } catch (err) {
     const message =
       err instanceof Error ? err.message : 'Pipeline failed unexpectedly'
     console.error(`[pipeline] lecture ${lectureId} failed:`, message)
-
-    // If failure was BEFORE transcript checkpoint: keep audio file (retry can re-transcribe)
-    // If AFTER: audio already deleted (retry uses transcript)
     await db.lecture.update({
       where: { id: lectureId },
       data: {
         status: 'FAILED',
         errorMessage: message.slice(0, 500),
         substage: null,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now(),
       },
     })
   }

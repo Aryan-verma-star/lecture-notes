@@ -154,10 +154,6 @@ export function RecordView({ preselectSubjectId }: RecordViewProps) {
       setFormError('Select a subject first.')
       return
     }
-    if (!title.trim()) {
-      setFormError('Give this lecture a title.')
-      return
-    }
 
     setStarting(true)
     try {
@@ -292,27 +288,39 @@ export function RecordView({ preselectSubjectId }: RecordViewProps) {
   }
 
   async function uploadAndProcess(lectureId: string, blob: Blob | null, duration: number | null) {
+    let storagePath: string | undefined
     if (blob) {
-      const form = new FormData()
-      const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm'
-      form.append('audio', blob, `recording.${ext}`)
-      if (duration != null) form.append('duration', String(Math.round(duration)))
-      await api.post(`/api/lectures/${lectureId}/audio`, form)
-    } else {
-      await api.post(`/api/lectures/${lectureId}/audio`, {
-        durationSeconds: duration ?? undefined,
+      // 1) Ask the server for a short-lived, pre-authenticated upload URL.
+      const signed = await api.post<{ url: string; path: string; token: string }>(
+        `/api/lectures/${lectureId}/upload-url`,
+        { contentType: blob.type }
+      )
+      // 2) Stream the audio DIRECTLY from the browser to Supabase Storage
+      //    (avoids Vercel's 4.5 MB request body limit).
+      const up = await fetch(signed.url, {
+        method: 'PUT',
+        headers: { 'Content-Type': blob.type },
+        body: blob,
       })
+      if (!up.ok) {
+        throw new Error(`Storage upload failed (${up.status})`)
+      }
+      storagePath = signed.path
     }
+    // 3) Tell the server the audio is in storage; it marks the lecture
+    //    PROCESSING and we then fire the synchronous process request.
+    await api.post(`/api/lectures/${lectureId}/audio`, {
+      storagePath,
+      durationSeconds: duration != null ? Math.round(duration) : undefined,
+    })
+    // 4) Kick off processing — do NOT await; the UI navigates and polls status.
+    void api.post(`/api/lectures/${lectureId}/process`, {}).catch(() => {})
   }
 
   async function handleFileUpload(file: File) {
     setFormError(null)
     if (!subjectId) {
       setFormError('Select a subject first.')
-      return
-    }
-    if (!title.trim()) {
-      setFormError('Give this lecture a title.')
       return
     }
 
@@ -323,10 +331,8 @@ export function RecordView({ preselectSubjectId }: RecordViewProps) {
         title: title.trim(),
       })
       const duration = await readAudioDuration(file)
-      const form = new FormData()
-      form.append('audio', file, file.name)
-      if (duration != null) form.append('duration', String(Math.round(duration)))
-      await api.post(`/api/lectures/${lecture.id}/audio`, form)
+      // File uploads go through the same direct-to-storage path as recordings.
+      await uploadAndProcess(lecture.id, file, duration)
       toast('Audio uploaded — transcription started', 'success')
       navigate(`/lectures/${lecture.id}`)
     } catch (err) {
@@ -474,9 +480,9 @@ export function RecordView({ preselectSubjectId }: RecordViewProps) {
           </Select>
         </Field>
 
-        <Field label="Title" error={formError}>
+        <Field label="Title (optional)" error={formError}>
           <Input
-            placeholder="Lecture 5: Fourier Series"
+            placeholder="Leave blank — AI will title it from the recording"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             maxLength={120}

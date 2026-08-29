@@ -1,11 +1,10 @@
-import { promises as fs } from 'fs'
-import path from 'path'
 import { db } from '@/lib/db'
 import { getCurrentUser, unauthorized } from '@/lib/auth'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 type Params = { params: Promise<{ id: string }> }
 
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const BUCKET = 'lecture-audio'
 
 export async function GET(request: Request, { params }: Params) {
   try {
@@ -102,7 +101,7 @@ export async function DELETE(request: Request, { params }: Params) {
 
     const lecture = await db.lecture.findFirst({
       where: { id, userId: user.id },
-      select: { id: true },
+      select: { id: true, storagePath: true },
     })
     if (!lecture) {
       return Response.json({ error: 'Not found' }, { status: 404 })
@@ -110,11 +109,13 @@ export async function DELETE(request: Request, { params }: Params) {
 
     await db.lecture.delete({ where: { id } })
 
-    // Best-effort cleanup of the on-disk audio file
-    try {
-      await fs.unlink(path.join(UPLOADS_DIR, id))
-    } catch {
-      /* file may not exist — ignore */
+    // Best-effort cleanup of the audio object in Supabase Storage
+    if (lecture.storagePath) {
+      try {
+        await supabaseAdmin.storage.from(BUCKET).remove([lecture.storagePath])
+      } catch {
+        /* object may not exist — ignore */
+      }
     }
 
     return Response.json({ ok: true })

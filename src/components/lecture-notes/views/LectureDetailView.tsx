@@ -25,7 +25,7 @@ import {
 } from '@/lib/api'
 import { navigate, useBack } from '@/lib/router'
 import { formatDate, formatDuration } from '@/lib/format'
-import { extractToc, slugify } from '@/lib/toc'
+import { extractToc, makeSlugger } from '@/lib/toc'
 import { Button } from '@/components/lecture-notes/Button'
 import { StatusPill } from '@/components/lecture-notes/StatusPill'
 import { FlashcardReview } from '@/components/lecture-notes/FlashcardReview'
@@ -92,25 +92,24 @@ function noteStats(markdown: string): { words: number; minutes: number } {
   return { words, minutes: Math.max(1, Math.round(words / 200)) }
 }
 
-/** Markdown renderers that derive heading ids from heading text — stateless,
- *  so ids survive re-renders (scroll-spy, view toggles) without drift.
- *  Task checkboxes render UNCONTROLLED (defaultChecked) so React never
- *  reverts user toggles during unrelated re-renders. */
+/** Markdown renderers that derive heading ids from heading text. A fresh
+ *  slugger per render keeps ids deterministic (same markdown → same ids across
+ *  re-renders, scroll-spy, and view toggles) while guaranteeing uniqueness when
+ *  the same heading text appears more than once. The same slugger algorithm is
+ *  used by extractToc() so the TOC anchors line up with these ids. */
 function useMarkdownComponents(): Components {
-  return useMemo(
-    () => ({
-      h2: ({ children }) => (
-        <h2 id={slugify(nodeText(children)) || undefined}>{children}</h2>
-      ),
-      h3: ({ children }) => (
-        <h3 id={slugify(nodeText(children)) || undefined}>{children}</h3>
-      ),
-      input: ({ checked, ...props }) => (
-        <input {...props} type="checkbox" defaultChecked={checked === true} />
-      ),
-    }),
-    []
-  )
+  const slugger = makeSlugger()
+  return {
+    h2: ({ children }) => (
+      <h2 id={slugger(nodeText(children)) || undefined}>{children}</h2>
+    ),
+    h3: ({ children }) => (
+      <h3 id={slugger(nodeText(children)) || undefined}>{children}</h3>
+    ),
+    input: ({ checked, ...props }) => (
+      <input {...props} type="checkbox" defaultChecked={checked === true} />
+    ),
+  }
 }
 
 export function LectureDetailView({

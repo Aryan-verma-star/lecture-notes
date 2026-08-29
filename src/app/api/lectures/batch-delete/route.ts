@@ -1,9 +1,8 @@
-import { promises as fs } from 'fs'
-import path from 'path'
 import { db } from '@/lib/db'
 import { getCurrentUser, unauthorized } from '@/lib/auth'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const BUCKET = 'lecture-audio'
 
 /** Batch-deletes lectures owned by the authenticated user. Body: { ids: string[] } */
 export async function POST(request: Request) {
@@ -30,19 +29,20 @@ export async function POST(request: Request) {
     // Find only lectures owned by this user
     const owned = await db.lecture.findMany({
       where: { id: { in: ids }, userId: user.id },
-      select: { id: true },
+      select: { id: true, storagePath: true },
     })
 
-    // Best-effort cleanup of on-disk audio files
-    await Promise.all(
-      owned.map(async (l) => {
-        try {
-          await fs.unlink(path.join(UPLOADS_DIR, l.id))
-        } catch {
-          /* file may not exist */
-        }
-      })
-    )
+    // Best-effort cleanup of audio objects in Supabase Storage
+    const paths = owned
+      .map((l) => l.storagePath)
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+    if (paths.length > 0) {
+      try {
+        await supabaseAdmin.storage.from(BUCKET).remove(paths)
+      } catch {
+        /* objects may not exist */
+      }
+    }
 
     const result = await db.lecture.deleteMany({
       where: { id: { in: owned.map((l) => l.id) }, userId: user.id },

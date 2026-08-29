@@ -29,14 +29,30 @@ export function slugify(text: string): string {
     .replace(/^-|-$/g, '')
 }
 
-/** Extracts h2/h3 entries with DOM-safe ids for anchor scrolling.
- *  Ids are derived purely from heading text (no per-render counters) so the
- *  renderer and the TOC stay in sync across re-renders. Duplicate heading
- *  texts intentionally share an id (both link to the first occurrence). */
+/**
+ * Returns a function that yields DOM-safe, unique slugs for a sequence of
+ * heading texts. The first occurrence of a text keeps its base slug; later
+ * duplicates get a `-2`, `-3`, … suffix so every id is unique (valid HTML,
+ * stable React keys, and working anchor links). Deterministic for a given
+ * input order, so it can be used independently by the TOC and the markdown
+ * renderer and still produce matching ids.
+ */
+export function makeSlugger(): (text: string) => string {
+  const seen = new Map<string, number>()
+  return (text: string): string => {
+    const base = slugify(text) || 'section'
+    const count = seen.get(base) ?? 0
+    seen.set(base, count + 1)
+    return count === 0 ? base : `${base}-${count}`
+  }
+}
+
+/** Extracts h2/h3 entries with DOM-safe ids for anchor scrolling. */
 export function extractToc(markdown: string): TocEntry[] {
   const lines = markdown.split('\n')
   const entries: TocEntry[] = []
   let inFence = false
+  const slugger = makeSlugger()
 
   for (const line of lines) {
     const fenceMatch = line.match(/^\s*(```|~~~)/)
@@ -52,7 +68,7 @@ export function extractToc(markdown: string): TocEntry[] {
     const text = stripInline(match[2])
     if (!text) continue
 
-    entries.push({ id: slugify(text) || 'section', text, depth })
+    entries.push({ id: slugger(text), text, depth })
   }
 
   return entries

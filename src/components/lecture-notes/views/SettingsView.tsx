@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Download, LogOut } from 'lucide-react'
+import { Download, Github, LogOut } from 'lucide-react'
 import { api, type ExportBundle } from '@/lib/api'
 import { Button } from '@/components/lecture-notes/Button'
 import { Field, Input } from '@/components/lecture-notes/Input'
@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/context/ToastContext'
 
 type BackendState = 'checking' | 'online' | 'offline'
+type GithubState = { configured: boolean; notesToBackup: number }
 
 export function SettingsView() {
   const { user, logout } = useAuth()
@@ -17,12 +18,18 @@ export function SettingsView() {
 
   const [backend, setBackend] = useState<BackendState>('checking')
   const [exporting, setExporting] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [github, setGithub] = useState<GithubState | null>(null)
 
   useEffect(() => {
     api
       .get('/api/health')
       .then(() => setBackend('online'))
       .catch(() => setBackend('offline'))
+    api
+      .get<GithubState>('/api/github/sync')
+      .then(setGithub)
+      .catch(() => setGithub({ configured: false, notesToBackup: 0 }))
   }, [])
 
   async function handleExport() {
@@ -73,6 +80,28 @@ export function SettingsView() {
       toast(err instanceof Error ? err.message : 'Export failed', 'error')
     } finally {
       setExporting(false)
+    }
+  }
+
+  async function handleGithubSync() {
+    setSyncing(true)
+    try {
+      const res = await api.post<{ files: number; deleted: number }>(
+        '/api/github/sync'
+      )
+      toast(
+        `Backed up to GitHub — ${res.files} file(s) written, ${res.deleted} removed`,
+        'success'
+      )
+      const updated = await api.get<GithubState>('/api/github/sync')
+      setGithub(updated)
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : 'GitHub backup failed',
+        'error'
+      )
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -139,6 +168,51 @@ export function SettingsView() {
                 icon={<Download size={14} strokeWidth={1.5} />}
               >
                 Export all notes (.md)
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------ GitHub Backup ------------ */}
+        <section className="settings-section" aria-labelledby="github-heading">
+          <h2 className="heading" id="github-heading">
+            GitHub Backup
+          </h2>
+
+          <div className="settings-card">
+            <div>
+              <p className="body" style={{ fontSize: 13 }}>
+                Automatically mirrors your notes to a private GitHub repository as
+                Markdown — one folder per subject, with each lecture's notes (and
+                transcript) as a file. Set <code>GITHUB_TOKEN</code> and{' '}
+                <code>GITHUB_REPO</code> (owner/repo) in the environment to enable it.
+              </p>
+            </div>
+            <div className="settings-row">
+              <span className="settings-row-label">Status</span>
+              <span className="connection-sub">
+                {github?.configured ? (
+                  <>
+                    <span className="status-dot" style={{ background: 'var(--success)' }} />
+                    {github.notesToBackup} note(s) will be backed up
+                  </>
+                ) : (
+                  <>
+                    <span className="status-dot" style={{ background: 'var(--warning)' }} />
+                    Not configured
+                  </>
+                )}
+              </span>
+            </div>
+            <div className="settings-actions">
+              <Button
+                variant="secondary"
+                onClick={handleGithubSync}
+                loading={syncing}
+                disabled={syncing || github?.configured === false}
+                icon={<Github size={14} strokeWidth={1.5} />}
+              >
+                Backup to GitHub now
               </Button>
             </div>
           </div>
