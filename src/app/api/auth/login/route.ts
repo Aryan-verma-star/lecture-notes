@@ -1,5 +1,5 @@
-import { db } from '@/lib/db'
-import { createToken, hashPassword, verifyPassword } from '@/lib/auth'
+import { supabaseAdmin } from '@/lib/supabase-admin'
+import { upsertUserFromSupabase } from '@/lib/auth'
 
 export async function POST(request: Request) {
   try {
@@ -11,18 +11,18 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
 
-    const user = await db.user.findUnique({ where: { email } })
-    if (!user || !verifyPassword(password, user.passwordHash)) {
+    const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password })
+    if (error || !data.session) {
       return Response.json({ error: 'Invalid email or password.' }, { status: 401 })
     }
 
-    const accessToken = await createToken(user.id)
-    const refreshToken = await createToken(user.id)
+    const sub = data.user.id
+    await upsertUserFromSupabase(sub, data.user.email ?? email)
 
     return Response.json({
-      accessToken,
-      refreshToken,
-      user: { id: user.id, email: user.email },
+      accessToken: data.session.access_token,
+      refreshToken: data.session.refresh_token,
+      user: { id: sub, email: data.user.email ?? email },
     })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Request failed'

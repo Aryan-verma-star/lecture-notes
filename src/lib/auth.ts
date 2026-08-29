@@ -1,16 +1,10 @@
-import { SignJWT, jwtVerify } from 'jose'
-import { scryptSync, randomBytes, timingSafeEqual } from 'crypto'
+import { scryptSync, randomBytes, timingSafeEqual, randomUUID } from 'crypto'
 import { db } from '@/lib/db'
-
-const SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || 'dev-secret-change-in-production-min-32-chars'
-)
-const TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
-
-// ── Password hashing (crypto.scryptSync, N=16384, r=8, p=1) ──
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 const SCRYPT_OPTS = { N: 16384, r: 8, p: 1, maxmem: 128 * 1024 * 1024 }
 
+// Password hashing — retained for the create-user script (custom-DB accounts).
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString('hex')
   const hash = scryptSync(password, salt, 64, SCRYPT_OPTS)
@@ -28,37 +22,24 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
-// ── JWT (jose, HS256, 30-day TTL) ──
-
-export async function createToken(userId: string): Promise<string> {
-  return new SignJWT({})
-    .setProtectedHeader({ alg: 'HS256' })
-    .setSubject(userId)
-    .setIssuedAt()
-    .setExpirationTime(`${TTL_SECONDS}s`)
-    .sign(SECRET)
-}
-
-export async function verifyToken(token: string): Promise<string | null> {
-  try {
-    const { payload } = await jwtVerify(token, SECRET, { algorithms: ['HS256'] })
-    return payload.sub ?? null
-  } catch {
-    return null
-  }
-}
-
-// ── Request helper ──
+// ── Supabase Auth ──
 
 export async function getCurrentUser(request: Request) {
   const auth = request.headers.get('authorization') || ''
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : ''
   if (!token) return null
-  const userId = await verifyToken(token)
-  if (!userId) return null
-  return db.user.findUnique({
-    where: { id: userId },
-    select: { id: true, email: true },
+  const { data, error } = await supabaseAdmin.auth.getUser(token)
+  if (error || !data.user) return null
+  return { id: data.user.id, email: data.user.email ?? '' }
+}
+
+// Ensures an app-side User row exists for a Supabase identity so that
+// subjects/lectures can be owned by the Supabase user id.
+export async function upsertUserFromSupabase(sub: string, email: string) {
+  await db.user.upsert({
+    where: { id: sub },
+    create: { id: sub, email, createdAt: new Date().toISOString() },
+    update: { email },
   })
 }
 
@@ -66,8 +47,6 @@ export function unauthorized(message = 'Not authenticated') {
   return Response.json({ error: message }, { status: 401 })
 }
 
-// ── ID generator ──
-
 export function genId(): string {
-  return crypto.randomUUID()
+  return randomUUID()
 }
