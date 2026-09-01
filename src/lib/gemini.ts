@@ -1,5 +1,4 @@
-// Gemini API client — plain fetch(), no SDK.
-// Spec: https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+import { GoogleGenAI } from '@google/genai'
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || ''
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash'
@@ -19,17 +18,101 @@ const MODEL_CHAIN = Array.from(new Set([GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS]
 const GEMINI_MOCK = process.env.GEMINI_MOCK === '1'
 const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 90_000 // 90s per attempt
 const STATUS_RETRY_DELAYS = [2000, 6000] // retry 429/500/503 on the same model
-const RETRY_STATUS = new Set([429, 500, 503])
 
-/** Thrown when no fallback model can help (bad request, auth, etc.). */
-class NonRetryableError extends Error {}
+// Transient / retryable signals (rate limit, overload, timeout, network).
+const RETRYABLE = /429|500|503|overloaded|unavailable|timeout|abort|deadline|econnreset|socket hang/i
 
-function endpointFor(model: string): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
-}
+export const genai = new GoogleGenAI({ apiKey: GEMINI_API_KEY })
 
 export const TRANSCRIBE_PROMPT =
   'Transcribe this lecture recording. Remove filler words and non-speech noise. Label speakers if multiple are present (e.g. \'Lecturer:\', \'Student:\'). Return plain text only.'
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+type Part = Record<string, unknown>
+type GenConfig = Record<string, unknown>
+
+/**
+ * Calls Gemini through the official SDK, retrying transient failures on the
+ * primary model and then falling back through MODEL_CHAIN until one succeeds.
+ * Returns the parsed response plus the model that produced it.
+ */
+async function callGeminiWithFallback(
+  parts: Part[],
+  config: GenConfig = {}
+): Promise<{ response: unknown; model: string }> {
+  const errors: string[] = []
+
+  for (const model of MODEL_CHAIN) {
+    for (let attempt = 0; attempt <= STATUS_RETRY_DELAYS.length; attempt++) {
+      if (attempt > 0) await sleep(STATUS_RETRY_DELAYS[attempt - 1])
+
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
+      try {
+        const response = await genai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: parts as never }],
+          config: { ...config, abortSignal: controller.signal } as never,
+        })
+        clearTimeout(timer)
+        return { response, model }
+      } catch (err) {
+        clearTimeout(timer)
+        const msg = err instanceof Error ? err.message : String(err)
+        // Transient error → retry on the same model (Throttled: 429/503 etc).
+        if (attempt < STATUS_RETRY_DELAYS.length && RETRYABLE.test(msg)) continue
+        // Permanent error for this model → try the next model in the chain.
+        errors.push(`${model}: ${msg}`)
+        break
+      }
+    }
+  }
+
+  throw new Error(`All Gemini models failed:\n${errors.join('\n')}`)
+}
+
+function extractText(response: unknown): string {
+  const r = response as {
+    text?: string
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+  }
+  if (typeof r?.text === 'string' && r.text) return r.text
+  const parts = r?.candidates?.[0]?.content?.parts
+  if (!parts) return ''
+  return parts.map((p) => p.text || '').join('')
+}
+
+/** Detects audio MIME type from file magic bytes. */
+export function detectMime(buf: Buffer): string {
+  if (buf.length < 4) return 'audio/mpeg'
+  // RIFF....WAVE
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) {
+    if (buf.length >= 12 && buf.slice(8, 12).toString('ascii') === 'WAVE') return 'audio/wav'
+  }
+  // ID3 (MP3)
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return 'audio/mpeg'
+  // ftyp box (M4A)
+  if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
+    return 'audio/mp4'
+  }
+  // OggS (OGG)
+  if (buf[0] === 0x4f && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) {
+    return 'audio/ogg'
+  }
+  // fLaC (FLAC)
+  if (buf[0] === 0x66 && buf[1] === 0x4c && buf[2] === 0x61 && buf[3] === 0x43) {
+    return 'audio/flac'
+  }
+  // WebM (0x1A 0x45 0xDF 0xA3)
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
+    return 'audio/webm'
+  }
+  return 'audio/mpeg'
+}
 
 export const SYNTHESIS_PROMPT = `You are an expert academic note-taker. A student
 recorded a college lecture and needs comprehensive study notes. You receive
@@ -190,128 +273,6 @@ export const RESPONSE_SCHEMA = {
   ],
 } as const
 
-/** Detects audio MIME type from file magic bytes. */
-export function detectMime(buf: Buffer): string {
-  if (buf.length < 4) return 'audio/mpeg'
-  // RIFF....WAVE
-  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) {
-    if (buf.length >= 12 && buf.slice(8, 12).toString('ascii') === 'WAVE') return 'audio/wav'
-  }
-  // ID3 (MP3)
-  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return 'audio/mpeg'
-  // ftyp box (M4A)
-  if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) {
-    return 'audio/mp4'
-  }
-  // OggS (OGG)
-  if (buf[0] === 0x4f && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) {
-    return 'audio/ogg'
-  }
-  // fLaC (FLAC)
-  if (buf[0] === 0x66 && buf[1] === 0x4c && buf[2] === 0x61 && buf[3] === 0x43) {
-    return 'audio/flac'
-  }
-  // WebM (0x1A 0x45 0xDF 0xA3)
-  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
-    return 'audio/webm'
-  }
-  return 'audio/mpeg'
-}
-
-async function callOneModel(
-  body: Record<string, unknown>,
-  model: string
-): Promise<unknown> {
-  const ENDPOINT = endpointFor(model)
-  let lastError: Error | null = null
-
-  for (let attempt = 0; attempt <= STATUS_RETRY_DELAYS.length; attempt++) {
-    if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, STATUS_RETRY_DELAYS[attempt - 1]))
-    }
-
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-
-    try {
-      const res = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'x-goog-api-key': GEMINI_API_KEY,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-
-      clearTimeout(timer)
-
-      if (res.ok) {
-        return await res.json()
-      }
-
-      const text = await res.text()
-      const message = `Gemini API ${res.status} (${model}): ${text.slice(0, 200)}`
-      lastError = new Error(message)
-
-      // Retry transient server errors / rate limits on the same model.
-      if (RETRY_STATUS.has(res.status)) continue
-
-      // Any other 4xx is a bad request — no model can fix it.
-      if (res.status >= 400 && res.status < 500) {
-        throw new NonRetryableError(message)
-      }
-      // Other 5xx — fall through to the next model.
-      break
-    } catch (err) {
-      clearTimeout(timer)
-      if (err instanceof NonRetryableError) throw err
-      // Timeout / network error: don't keep hammering this model — let the
-      // caller fall back to the next one immediately.
-      lastError = err instanceof Error ? err : new Error(String(err))
-      break
-    }
-  }
-
-  throw lastError ?? new Error('Gemini API call failed')
-}
-
-/**
- * Calls Gemini, retrying transient failures on the primary model and then
- * falling back through MODEL_CHAIN until one succeeds.
- * Returns the parsed response plus the model that produced it.
- */
-async function callGeminiWithFallback(body: Record<string, unknown>): Promise<{
-  response: unknown
-  model: string
-}> {
-  const errors: string[] = []
-
-  for (const model of MODEL_CHAIN) {
-    try {
-      const response = await callOneModel(body, model)
-      return { response, model }
-    } catch (err) {
-      if (err instanceof NonRetryableError) throw err
-      errors.push(err instanceof Error ? err.message : String(err))
-      // otherwise fall through to the next model in the chain
-    }
-  }
-
-  throw new Error(`All Gemini models failed:\n${errors.join('\n')}`)
-}
-
-function extractText(response: unknown): string {
-  const r = response as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> }
-    }>
-  }
-  const parts = r?.candidates?.[0]?.content?.parts
-  if (!parts) return ''
-  return parts.map((p) => p.text || '').join('')
-}
-
 /** Transcribes audio via Gemini. Returns plain-text transcript. */
 export async function transcribeAudio(
   audioBase64: string,
@@ -322,19 +283,11 @@ export async function transcribeAudio(
     return mockTranscribe()
   }
 
-  const body = {
-    contents: [
-      {
-        parts: [
-          { inline_data: { mime_type: mimeType, data: audioBase64 } },
-          { text: TRANSCRIBE_PROMPT },
-        ],
-      },
-    ],
-  }
-
-  const response = await callGeminiWithFallback(body)
-  const text = extractText(response.response)
+  const { response } = await callGeminiWithFallback([
+    { inlineData: { mimeType, data: audioBase64 } },
+    { text: TRANSCRIBE_PROMPT },
+  ])
+  const text = extractText(response)
   if (!text.trim()) throw new Error('Transcription returned empty text')
   return text.trim()
 }
@@ -349,22 +302,11 @@ export async function synthesizeNotes(
     return mockSynthesize()
   }
 
-  const body = {
-    contents: [
-      {
-        parts: [
-          { text: `${SYNTHESIS_PROMPT}\n\nTRANSCRIPT:\n${transcript}` },
-        ],
-      },
-    ],
-    generationConfig: {
-      response_mime_type: 'application/json',
-      response_schema: RESPONSE_SCHEMA,
-    },
-  }
-
-  const response = await callGeminiWithFallback(body)
-  const text = extractText(response.response)
+  const { response } = await callGeminiWithFallback(
+    [{ text: `${SYNTHESIS_PROMPT}\n\nTRANSCRIPT:\n${transcript}` }],
+    { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA }
+  )
+  const text = extractText(response)
   if (!text.trim()) throw new Error('Synthesis returned empty text')
 
   try {
