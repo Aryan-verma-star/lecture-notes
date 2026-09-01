@@ -5,6 +5,7 @@ import { Mic, Pause, Play, Square, Upload } from 'lucide-react'
 import { api, type Lecture, type Subject } from '@/lib/api'
 import { navigate } from '@/lib/router'
 import { formatClock } from '@/lib/format'
+import { supabaseBrowser } from '@/lib/supabase-browser'
 import { Button } from '@/components/lecture-notes/Button'
 import { Field, Input, Select } from '@/components/lecture-notes/Input'
 import { useToast } from '@/context/ToastContext'
@@ -297,13 +298,11 @@ export function RecordView({ preselectSubjectId }: RecordViewProps) {
       )
       // 2) Stream the audio DIRECTLY from the browser to Supabase Storage
       //    (avoids Vercel's 4.5 MB request body limit).
-      const up = await fetch(signed.url, {
-        method: 'PUT',
-        headers: { 'Content-Type': blob.type },
-        body: blob,
-      })
-      if (!up.ok) {
-        throw new Error(`Storage upload failed (${up.status})`)
+      const { error: uploadError } = await supabaseBrowser.storage
+        .from('lecture-audio')
+        .uploadToSignedUrl(signed.path, signed.token, blob)
+      if (uploadError) {
+        throw new Error(`Storage upload failed: ${uploadError.message}`)
       }
       storagePath = signed.path
     }
